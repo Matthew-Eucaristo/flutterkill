@@ -233,6 +233,7 @@ func TestHomeIsNeverAProject(t *testing.T) {
 	root := realTemp(t)
 	home := project(t, root, "home", "build")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	if err := CheckArtifact(root, home, "build"); err == nil {
 		t.Error("~/build allowed because of a stray ~/pubspec.yaml")
 	}
