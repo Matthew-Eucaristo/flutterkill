@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -56,6 +57,8 @@ func TestFindProjectsDetectsArtifacts(t *testing.T) {
 	mk(t, root,
 		"app/pubspec.yaml", "app/build/x", "app/.dart_tool/x", "app/ios/Pods/x", "app/ios/.symlinks/",
 		"app/macos/Pods/", "app/android/.gradle/x", "app/android/app/.cxx/x", "app/lib/main.dart",
+		"app/ios/Flutter/ephemeral/x", "app/macos/Flutter/ephemeral/.symlinks/", "app/linux/flutter/ephemeral/x",
+		"app/windows/flutter/ephemeral/x", "app/windows/flutter/CMakeLists.txt",
 	)
 	os.WriteFile(filepath.Join(root, "app/pubspec.yaml"), []byte("name: my_app\ndependencies:\n  flutter:\n    sdk: flutter\n"), 0o644)
 
@@ -187,6 +190,9 @@ func TestDirSizeCountsHardLinksOnceAndSkipsSymlinkTargets(t *testing.T) {
 	os.Symlink(outside, filepath.Join(root, "link"))
 
 	n := DirSize(root)
+	if runtime.GOOS == "windows" {
+		n -= 64 * 1024 // hard links are not deduplicated there; only the symlink matters
+	}
 	if n < 64*1024 || n >= 2*64*1024 {
 		t.Errorf("DirSize = %d, want one copy of 64 KiB", n)
 	}
@@ -238,5 +244,23 @@ func TestLastActivityUsesUncommittedChanges(t *testing.T) {
 	mk(t, root, "app/lib/new.dart")
 	if got, _ = LastActivity(app); time.Since(got) > time.Minute {
 		t.Errorf("uncommitted change ignored: %v", got)
+	}
+}
+
+func TestGradleDist(t *testing.T) {
+	root := t.TempDir()
+	for dir, props := range map[string]string{
+		"a": "#Gradle\ndistributionBase=GRADLE_USER_HOME\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip\n",
+		"b": "distributionUrl = https\\://mirror.example.com/gradle/gradle-7.6.3-bin.zip\n",
+		"c": "distributionUrl=https\\://example.com/not-gradle.zip\n",
+	} {
+		mk(t, root, dir+"/pubspec.yaml")
+		mk(t, root, dir+"/android/gradle/wrapper/")
+		os.WriteFile(filepath.Join(root, dir, "android/gradle/wrapper/gradle-wrapper.properties"), []byte(props), 0o644)
+	}
+	mk(t, root, "d/pubspec.yaml")
+	ps := find(t, root)
+	if ps["a"].GradleDist != "gradle-8.3-all" || ps["b"].GradleDist != "gradle-7.6.3-bin" || ps["c"].GradleDist != "" || ps["d"].GradleDist != "" {
+		t.Errorf("gradle dists: a=%q b=%q c=%q d=%q", ps["a"].GradleDist, ps["b"].GradleDist, ps["c"].GradleDist, ps["d"].GradleDist)
 	}
 }

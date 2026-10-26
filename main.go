@@ -150,7 +150,7 @@ func printResult(r ui.Result, mode clean.Mode) {
 	case clean.Permanent:
 		fmt.Printf("Freed %s from %d item(s).\n", format.Bytes(r.Bytes), r.Items)
 	default:
-		fmt.Printf("Moved %s (%d item(s)) to the Trash. Empty the Trash to reclaim the space.\n", format.Bytes(r.Bytes), r.Items)
+		fmt.Printf("Moved %s (%d item(s)) to the %s. Empty it to reclaim the space.\n", format.Bytes(r.Bytes), r.Items, clean.TrashName)
 	}
 }
 

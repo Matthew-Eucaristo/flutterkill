@@ -52,8 +52,8 @@ func CheckArtifact(root, project, name string) error {
 	return nil
 }
 
-// CheckCache allows removing path only if it is one of the fixed global cache
-// locations (or a direct child of the FVM versions directory), is not itself
+// CheckCache allows removing path only if allowed.Allows it (a fixed global
+// cache location, or a direct child matched by a Children rule), is not itself
 // a symlink, is a real directory, is not home or an ancestor of it, and does
 // not contain the scan root.
 func CheckCache(allowed caches.Allowed, root, path string) error {
@@ -67,9 +67,7 @@ func CheckCache(allowed caches.Allowed, root, path string) error {
 	if root != "" && (path == filepath.Clean(root) || within(path, root)) {
 		return fmt.Errorf("%s contains the scanned root", path)
 	}
-	known := allowed.Exact[path] ||
-		(allowed.FVMVersions != "" && filepath.Dir(path) == filepath.Clean(allowed.FVMVersions) && !strings.HasPrefix(filepath.Base(path), "."))
-	if !known {
+	if !allowed.Allows(path) {
 		return fmt.Errorf("%s is not a known global cache", path)
 	}
 	fi, err := os.Lstat(path)

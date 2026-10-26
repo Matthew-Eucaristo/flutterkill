@@ -20,13 +20,13 @@ Reclaim disk space from Flutter and Dart projects — like [npkill](https://gith
   ↑↓ move  space select  a all  →← expand  tab switch  s sort  d delete  q quit
 ```
 
-A Flutter workspace grows quietly: every project keeps `build/`, `.dart_tool/`, CocoaPods and Gradle state, and the machine collects a pub cache, Gradle downloads, old FVM SDKs and Xcode DerivedData. `flutterkill` finds all of it, shows how big it is and which projects you haven't touched in months, and moves what you pick to the Trash.
+A Flutter workspace grows quietly: every project keeps `build/`, `.dart_tool/`, CocoaPods and Gradle state, and the machine collects a pub cache, Gradle downloads, old FVM SDKs, old Android Studio caches and Xcode DerivedData. It works on macOS, Linux and Windows, for Android, iOS, macOS, Linux, Windows and web targets alike. `flutterkill` finds all of it, shows how big it is and which projects you haven't touched in months, and moves what you pick to the Trash.
 
 - **Flutter-aware.** Finds projects by `pubspec.yaml` and only reclaims directories at their known place next to it — a folder called `build` anywhere else is never touched.
-- **Global caches too.** Pub cache, Dart analysis server, Gradle caches and distributions, FVM SDK versions (with which projects pin them), Xcode DerivedData, iOS DeviceSupport, CocoaPods cache, unavailable simulators.
+- **Global caches too.** Pub cache, Dart analysis server, Gradle caches, distributions and JDKs, FVM SDK versions and Gradle versions (with which projects use them), caches of old Android Studio versions, Xcode DerivedData, iOS DeviceSupport, CocoaPods and SwiftPM caches, simulator caches, unavailable simulators.
 - **Staleness at a glance.** Last activity per project — the latest commit or uncommitted change (gitignored build output doesn't count), or file times outside git — so the project you shipped a year ago stands out.
-- **Recoverable by default.** Items go to the Trash; `--permanent` is opt-in.
-- **Small and auditable.** One static binary, dependencies only from Charm ([Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), x/ansi); all removal code lives in [`internal/clean`](internal/clean).
+- **Recoverable by default.** Items go to the Trash (Recycle Bin on Windows); `--permanent` is opt-in.
+- **Small and auditable.** One static binary, dependencies only from Charm ([Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), x/ansi) plus `golang.org/x/sys` for the Windows Recycle Bin; all removal code lives in [`internal/clean`](internal/clean).
 
 ## Install
 
@@ -36,13 +36,13 @@ A Flutter workspace grows quietly: every project keeps `build/`, `.dart_tool/`, 
 brew install matthew-eucaristo/tap/flutterkill
 ```
 
-**Go** (1.26+):
+**Go** (1.26+, any OS including Windows):
 
 ```sh
 go install github.com/Matthew-Eucaristo/flutterkill@latest
 ```
 
-Prebuilt archives for macOS and Linux (amd64, arm64) are on the [releases page](https://github.com/Matthew-Eucaristo/flutterkill/releases).
+Prebuilt archives for macOS, Linux and Windows (amd64, arm64) are on the [releases page](https://github.com/Matthew-Eucaristo/flutterkill/releases). On Windows, unzip `flutterkill.exe` into a folder on your `PATH` and run it in Windows Terminal or PowerShell.
 
 ## Usage
 
@@ -89,19 +89,24 @@ flutterkill --older-than 1y --yes             # trash artifacts of year-old proj
 | `.dart_tool/` | `flutter pub get` (flutter run does it for you) |
 | `ios/Pods/`, `ios/.symlinks/`, `macos/Pods/` | `pod install` (run by the next iOS/macOS build) |
 | `android/.gradle/`, `android/app/.cxx/` | next Android build |
+| `ios/Flutter/ephemeral/`, `macos/Flutter/ephemeral/`, `linux/flutter/ephemeral/`, `windows/flutter/ephemeral/` | next build for that platform (these are what `flutter clean` removes there) |
 
 **Global caches** (shown only if present):
 
 | Cache | Location | How it is cleaned |
 | --- | --- | --- |
-| Pub cache | `$PUB_CACHE` or `~/.pub-cache` | `dart pub cache clean --force` (also removes `dart pub global` tools); Trash if `dart` is not on `PATH` |
-| Dart analysis server | `~/.dartServer` | Trash |
-| Gradle caches | `$GRADLE_USER_HOME/caches` or `~/.gradle/caches` | Trash — run `./gradlew --stop` first |
-| Gradle distributions | `$GRADLE_USER_HOME/wrapper/dists` or `~/.gradle/wrapper/dists` | Trash |
-| FVM Flutter SDKs | `$FVM_CACHE_PATH/versions` or `~/fvm/versions`, one row per version | Trash; the UI says which scanned projects pin each version (`.fvmrc`, inherited from parent folders) |
-| Xcode DerivedData | `~/Library/Developer/Xcode/DerivedData` | Trash (macOS) |
-| iOS DeviceSupport | `~/Library/Developer/Xcode/iOS DeviceSupport` | Trash (macOS) |
-| CocoaPods cache | `~/Library/Caches/CocoaPods` | Trash (macOS) |
+| Pub cache | `$PUB_CACHE`, `~/.pub-cache`, or `%LOCALAPPDATA%\Pub\Cache` on Windows | `dart pub cache clean --force` (also removes `dart pub global` tools); Trash if `dart` is not on `PATH` |
+| Dart analysis server | `~/.dartServer` (`%LOCALAPPDATA%\.dartServer` on Windows, or `$ANALYZER_STATE_LOCATION_OVERRIDE`) | Trash; rebuilt when your editor opens a project |
+| Gradle caches | `$GRADLE_USER_HOME/caches` or `~/.gradle/caches` | Trash — run `./gradlew --stop` first; dependencies are re-downloaded on the next Android build |
+| Gradle distributions | `$GRADLE_USER_HOME/wrapper/dists` or `~/.gradle/wrapper/dists`, one row per version | Trash; the wrapper re-downloads the version a project needs on its next build. The UI says which scanned projects use each version (`android/gradle/wrapper/gradle-wrapper.properties`) |
+| Gradle JDK toolchains | `$GRADLE_USER_HOME/jdks` or `~/.gradle/jdks` | Trash — run `./gradlew --stop` first; Gradle re-provisions a JDK when a build needs one |
+| FVM Flutter SDKs | `$FVM_CACHE_PATH/versions` or `~/fvm/versions`, one row per version | Trash; `fvm install` restores one. The UI says which scanned projects pin each version (`.fvmrc`, inherited from parent folders) |
+| Old Android Studio caches | `~/Library/Caches/Google/AndroidStudio<version>` (macOS), `$XDG_CACHE_HOME/Google` or `~/.cache/Google` (Linux), `%LOCALAPPDATA%\Google` (Windows), one row per version | Trash; the newest version of each channel (stable, Preview) is always kept. Only caches of versions you no longer run, which they would rebuild if started again; settings and plugins (`Application Support`, `~/.config`, `%APPDATA%`) are never touched |
+| Xcode DerivedData | `~/Library/Developer/Xcode/DerivedData` | Trash (macOS); rebuilt by the next iOS/macOS build |
+| iOS DeviceSupport | `~/Library/Developer/Xcode/iOS DeviceSupport` | Trash (macOS); re-copied when a device is connected |
+| CocoaPods cache | `~/Library/Caches/CocoaPods` | Trash (macOS); re-fetched by the next `pod install` |
+| Swift Package Manager cache | `~/Library/Caches/org.swift.swiftpm` | Trash (macOS); re-fetched when Xcode resolves the packages of SwiftPM-enabled plugins |
+| Simulator caches | `~/Library/Developer/CoreSimulator/Caches` | Trash (macOS); rebuilt when a simulator boots |
 | Unavailable simulators | CoreSimulator devices with no runtime | `xcrun simctl delete unavailable` (macOS) |
 
 The Android SDK, Flutter SDK checkouts and emulator images are deliberately not on the list: they are installs, not caches.
@@ -113,10 +118,10 @@ Every removal goes through a guard in [`internal/clean/guard.go`](internal/clean
 1. **Project artifacts** are removed only if the name is one of the fixed artifact paths above, the project is inside the scanned root and is not your home directory, it still has a `pubspec.yaml`, and the artifact is a real directory.
 2. **Never real work.** An artifact is refused if it holds a `pubspec.yaml` or `.git` directly, or contains any file tracked by git — generated output is never committed. (Deeper `pubspec.yaml` files are allowed: Flutter's Swift Package Manager integration copies plugin sources into `build/ios/SourcePackages`.)
 3. **Symlinks are refused.** No path component between the scanned root and the artifact may be a symlink, and nothing is followed while measuring or deleting. The root itself is resolved once at startup.
-4. **Global caches** are removed only if the path is in the fixed catalog in [`internal/caches`](internal/caches) (or is a direct child of the FVM versions directory), is not a symlink, and is specific: `/`, top-level directories, your home directory or anything containing it or the scan root are refused, even when `PUB_CACHE`, `GRADLE_USER_HOME` or `FVM_CACHE_PATH` point there.
+4. **Global caches** are removed only if the path is in the fixed catalog in [`internal/caches`](internal/caches) (or is a direct child of one of its per-version directories: FVM versions, Gradle wrapper distributions, or Android Studio caches other than the newest version), is not a symlink, and is specific: `/`, top-level directories, your home directory or anything containing it or the scan root are refused, even when `PUB_CACHE`, `GRADLE_USER_HOME` or `FVM_CACHE_PATH` point there.
 5. **Commands** are limited to `dart pub cache clean --force` and `xcrun simctl delete unavailable`; these are permanent and the confirmation marks them in red.
 6. **You see what goes.** The confirmation lists the items it will remove (with a count when the list is longer than the screen). A delete only reaches items visible in the current tab; selections in the other tab are left alone.
-7. **Trash by default**: `/usr/bin/trash` on macOS 15+ (Finder on older versions), the freedesktop.org home trash on Linux. On Linux, moves across filesystems are refused rather than copied; use `--permanent` there. `ctrl+c` while removals run asks for a second press.
+7. **Trash by default**: `/usr/bin/trash` on macOS 15+ (Finder on older versions), the freedesktop.org home trash on Linux, the Recycle Bin on Windows. On Linux, moves across filesystems are refused rather than copied; on Windows, drives without a Recycle Bin (network, removable) and paths of 260+ characters are refused, and Windows asks before deleting anything too big to recycle; use `--permanent` there. `ctrl+c` while removals run asks for a second press.
 8. `--dry-run` runs every check and changes nothing. `--json` and `--list` never remove anything.
 
 Moving to the Trash does not free space until you empty it — flutterkill reminds you on exit.
@@ -134,7 +139,7 @@ brew cleanup --prune=all       # optional: clears Homebrew's whole download and 
 brew untap matthew-eucaristo/tap   # only if nothing else is installed from this tap
 ```
 
-Installed with `go install`? Delete the binary: `rm "$(go env GOPATH)/bin/flutterkill"`.
+Installed with `go install`? Delete the binary: `rm "$(go env GOPATH)/bin/flutterkill"` (on Windows, `flutterkill.exe` in the same folder). From a release archive: delete the binary you unpacked.
 
 Anything you moved to the Trash with flutterkill stays there until you empty it or restore it.
 

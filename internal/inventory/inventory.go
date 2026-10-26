@@ -44,10 +44,13 @@ func Load(o Options) (*Inventory, error) {
 
 	inv := &Inventory{Root: o.Root, Caches: []*caches.Cache{}}
 	cutoff := time.Now().Add(-o.OlderThan)
-	pins := map[string][]string{} // from every project, cleaned ones included
+	pins := caches.Pins{FVM: map[string][]string{}, Gradle: map[string][]string{}} // from every project, cleaned ones included
 	for _, p := range projects {
 		if p.FVMVersion != "" {
-			pins[p.FVMVersion] = append(pins[p.FVMVersion], p.Name)
+			pins.FVM[p.FVMVersion] = append(pins.FVM[p.FVMVersion], p.Name)
+		}
+		if p.GradleDist != "" {
+			pins.Gradle[p.GradleDist] = append(pins.Gradle[p.GradleDist], p.Name)
 		}
 		if len(p.Artifacts) > 0 && (o.OlderThan == 0 || p.LastActivity.Before(cutoff)) {
 			inv.Projects = append(inv.Projects, p)

@@ -12,6 +12,9 @@ import (
 	"github.com/Matthew-Eucaristo/flutterkill/internal/caches"
 )
 
+// TrashName is what the OS calls its trash, for messages.
+var TrashName = "Trash"
+
 // Mode selects what "remove" means.
 type Mode int
 

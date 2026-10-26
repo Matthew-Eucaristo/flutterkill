@@ -31,13 +31,17 @@ var (
 
 // artifactNotes explain what each artifact is and how it comes back.
 var artifactNotes = map[string]string{
-	"build":            "Build output. Recreated by the next `flutter build` / `flutter run`.",
-	".dart_tool":       "Pub and build_runner state. `flutter pub get` (run automatically by flutter run) restores it.",
-	"ios/Pods":         "Installed CocoaPods. `pod install` (run by flutter build ios) restores it.",
-	"ios/.symlinks":    "Plugin symlinks for CocoaPods. Recreated by the next iOS build.",
-	"macos/Pods":       "Installed CocoaPods. Restored by the next macOS build.",
-	"android/.gradle":  "Project-level Gradle cache. Recreated by the next Android build.",
-	"android/app/.cxx": "Native (CMake/NDK) build intermediates. Recreated by the next Android build.",
+	"build":                     "Build output. Recreated by the next `flutter build` / `flutter run`.",
+	".dart_tool":                "Pub and build_runner state. `flutter pub get` (run automatically by flutter run) restores it.",
+	"ios/Pods":                  "Installed CocoaPods. `pod install` (run by flutter build ios) restores it.",
+	"ios/.symlinks":             "Plugin symlinks for CocoaPods. Recreated by the next iOS build.",
+	"macos/Pods":                "Installed CocoaPods. Restored by the next macOS build.",
+	"android/.gradle":           "Project-level Gradle cache. Recreated by the next Android build.",
+	"android/app/.cxx":          "Native (CMake/NDK) build intermediates. Recreated by the next Android build.",
+	"ios/Flutter/ephemeral":     "Generated Flutter files for Xcode. Recreated by the next iOS build.",
+	"macos/Flutter/ephemeral":   "Generated Flutter files and plugin symlinks. Recreated by the next macOS build.",
+	"linux/flutter/ephemeral":   "Flutter engine copy and plugin symlinks. Recreated by the next Linux build.",
+	"windows/flutter/ephemeral": "Flutter engine copy and plugin symlinks. Recreated by the next Windows build.",
 }
 
 const (
@@ -271,7 +275,7 @@ func (m *Model) summary() string {
 	sel := m.selectedHere(m.rows())
 	parts := []string{fmt.Sprintf("%d selected (%s)", len(sel), format.Bytes(m.sum(sel)))}
 	if m.result.Items > 0 {
-		verb := map[clean.Mode]string{clean.Trash: "Moved to Trash", clean.Permanent: "Freed", clean.DryRun: "Would free"}[m.cleaner.Mode]
+		verb := map[clean.Mode]string{clean.Trash: "Moved to " + clean.TrashName, clean.Permanent: "Freed", clean.DryRun: "Would free"}[m.cleaner.Mode]
 		parts = append(parts, green.Render(fmt.Sprintf("%s: %s", verb, format.Bytes(m.result.Bytes))))
 	}
 	if m.result.Failed > 0 {
@@ -292,7 +296,7 @@ func (m *Model) help() string {
 
 // confirmLines lists exactly what the pending delete will remove.
 func (m *Model) confirmLines(height int) []string {
-	verb := map[clean.Mode]string{clean.Trash: "Move to Trash", clean.Permanent: "PERMANENTLY delete", clean.DryRun: "Dry run: would remove"}[m.cleaner.Mode]
+	verb := map[clean.Mode]string{clean.Trash: "Move to " + clean.TrashName, clean.Permanent: "PERMANENTLY delete", clean.DryRun: "Dry run: would remove"}[m.cleaner.Mode]
 	title := fmt.Sprintf("  %s %d item(s), %s:", verb, len(m.confirm), format.Bytes(m.sum(m.confirm)))
 	if m.cleaner.Mode == clean.Permanent {
 		title = red.Render(title)

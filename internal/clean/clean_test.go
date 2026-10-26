@@ -98,11 +98,21 @@ func TestCheckCache(t *testing.T) {
 	home := realTemp(t)
 	gradle := filepath.Join(home, ".gradle", "caches")
 	fvm := filepath.Join(home, "fvm", "versions")
-	for _, d := range []string{gradle, filepath.Join(fvm, "3.24.0"), filepath.Join(home, ".gradle", "other")} {
+	dists := filepath.Join(home, ".gradle", "wrapper", "dists")
+	studio := filepath.Join(home, "Library", "Caches", "Google")
+	for _, d := range []string{gradle, filepath.Join(fvm, "3.24.0"), filepath.Join(home, ".gradle", "other"),
+		filepath.Join(dists, "gradle-8.3-all"), filepath.Join(studio, "AndroidStudio2024.1"), filepath.Join(studio, "AndroidStudio2025.1"),
+		filepath.Join(home, "Library", "Application Support", "Google", "AndroidStudio2024.1")} {
 		os.MkdirAll(d, 0o755)
 	}
 	os.Symlink(filepath.Join(fvm, "3.24.0"), filepath.Join(fvm, "stable"))
-	allowed := caches.Allowed{Exact: map[string]bool{gradle: true}, FVMVersions: fvm}
+	os.Symlink(filepath.Join(dists, "gradle-8.3-all"), filepath.Join(dists, "gradle-8.4-all"))
+	os.WriteFile(filepath.Join(dists, "gradle-file"), nil, 0o644)
+	allowed := caches.Allowed{Exact: map[string]bool{gradle: true}, Children: []caches.Children{
+		{Dir: fvm},
+		{Dir: dists, Prefix: "gradle-"},
+		{Dir: studio, Prefix: "AndroidStudio", Except: map[string]bool{"AndroidStudio2025.1": true}},
+	}}
 
 	tests := []struct {
 		path string
@@ -110,10 +120,18 @@ func TestCheckCache(t *testing.T) {
 	}{
 		{gradle, true},
 		{filepath.Join(fvm, "3.24.0"), true},
-		{filepath.Join(fvm, "stable"), false},            // symlink
-		{fvm, false},                                     // the versions dir itself
-		{filepath.Join(fvm, "3.24.0", "bin"), false},     // grandchild
-		{filepath.Join(home, ".gradle", "other"), false}, // not in the catalog
+		{filepath.Join(fvm, "stable"), false},        // symlink
+		{fvm, false},                                 // the versions dir itself
+		{filepath.Join(fvm, "3.24.0", "bin"), false}, // grandchild
+		{filepath.Join(dists, "gradle-8.3-all"), true},
+		{filepath.Join(dists, "gradle-8.4-all"), false}, // symlink
+		{filepath.Join(dists, "gradle-file"), false},    // not a directory
+		{dists, false},
+		{filepath.Join(studio, "AndroidStudio2024.1"), true},
+		{filepath.Join(studio, "AndroidStudio2025.1"), false}, // newest version
+		{studio, false},
+		{filepath.Join(home, "Library", "Application Support", "Google", "AndroidStudio2024.1"), false}, // settings, not caches
+		{filepath.Join(home, ".gradle", "other"), false},                                                // not in the catalog
 		{filepath.Join(home, ".gradle"), false},
 		{home, false},
 		{"relative/path", false},
@@ -121,6 +139,22 @@ func TestCheckCache(t *testing.T) {
 	for _, tt := range tests {
 		if err := CheckCache(allowed, "", tt.path); (err == nil) != tt.ok {
 			t.Errorf("CheckCache(%s) err=%v, want ok=%v", tt.path, err, tt.ok)
+		}
+	}
+}
+
+// The guard and Known agree on a real layout: older Android Studio caches are
+// removable, the newest is not.
+func TestCheckCacheWithKnownAndroidStudio(t *testing.T) {
+	home := realTemp(t)
+	studio := filepath.Join(home, "Library", "Caches", "Google")
+	for _, v := range []string{"AndroidStudio2024.3", "AndroidStudio2025.1.1", "AndroidStudio2025.1.3"} {
+		os.MkdirAll(filepath.Join(studio, v), 0o755)
+	}
+	allowed := caches.Known(caches.Env{Home: home, OS: "darwin", Getenv: func(string) string { return "" }})
+	for v, ok := range map[string]bool{"AndroidStudio2024.3": true, "AndroidStudio2025.1.1": true, "AndroidStudio2025.1.3": false} {
+		if err := CheckCache(allowed, "", filepath.Join(studio, v)); (err == nil) != ok {
+			t.Errorf("CheckCache(%s) err=%v, want ok=%v", v, err, ok)
 		}
 	}
 }
