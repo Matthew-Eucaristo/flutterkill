@@ -259,17 +259,26 @@ func fine(n, total int64, width int) string {
 type level int
 
 const (
-	safe    level = iota // rebuilt or re-downloaded on demand
-	caution              // allowed, but a project uses it or it cannot be undone
+	safe    level = iota // generated next to a pubspec.yaml; the next build recreates it
+	caution              // machine-wide: allowed when chosen, never in bulk elsewhere
 )
 
 func (l level) String() string { return [...]string{"safe", "caution"}[l] }
 
-func cacheLevel(c *caches.Cache) level {
-	if len(c.UsedBy) > 0 || len(c.Command) > 0 {
-		return caution
+// cacheLevel is always caution: machine-wide caches are "review" in the
+// family contract, and the TUI uses the same judgement as decruft.
+func cacheLevel(*caches.Cache) level { return caution }
+
+// cacheWhy says why a cache needs care, most specific first.
+func cacheWhy(c *caches.Cache) string {
+	why := []string{"shared by every project; the next build is slower"}
+	if n := len(c.UsedBy); n > 0 {
+		why = append([]string{fmt.Sprintf("used by %d scanned project(s)", n)}, why...)
 	}
-	return safe
+	if len(c.Command) > 0 {
+		why = append([]string{"its own clean-up command deletes (no undo)"}, why...)
+	}
+	return strings.Join(why, " · ")
 }
 
 func levelStyle(l level) lipgloss.Style {
@@ -363,7 +372,7 @@ func (m *Model) detail(r row) []string {
 	case r.c != nil:
 		c := r.c
 		lv := cacheLevel(c)
-		out = append(out, pad+bold.Render(c.Name)+"  "+levelStyle(lv).Render(lv.String()))
+		out = append(out, pad+bold.Render(c.Name)+"  "+levelStyle(lv).Render(lv.String())+"  "+faint.Render(cacheWhy(c)))
 		if len(c.Command) > 0 {
 			out = append(out, pad+red.Render("Runs `"+strings.Join(c.Command, " ")+"`, the tool's own clean-up. Not recoverable from the "+clean.TrashName+"."))
 		} else {
@@ -507,8 +516,8 @@ func (m *Model) emptyLines() []string {
 func (m *Model) legendLines() []string {
 	return []string{
 		"  " + bold.Render("Safety"),
-		"    " + badge(safe) + "  rebuilt or re-downloaded on demand; moves to the " + clean.TrashName,
-		"    " + badge(caution) + "  allowed, but a scanned project uses it, or the tool's own clean-up command runs (no undo)",
+		"    " + badge(safe) + "  project build output; the next build recreates it; moves to the " + clean.TrashName,
+		"    " + badge(caution) + "  machine-wide cache: shared by every project, maybe pinned by one, or cleaned by its own command (no undo)",
 		"",
 		"  " + bold.Render("Marks") + "  ○ not selected  ◐ partly  ● selected  ◌ queued or running  ✓ done  ✗ failed (see the detail)",
 		"  " + bold.Render("Bar") + "    " + cyan.Render("███") + " size, relative to the largest item in this tab",

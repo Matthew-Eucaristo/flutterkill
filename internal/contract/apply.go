@@ -196,6 +196,27 @@ func (d ApplyDoc) Text() string {
 		b.WriteString("\n")
 	}
 	s := d.Summary
-	fmt.Fprintf(&b, "done %d · dry run %d · refused %d · failed %d · about %s\n", s.Done, s.DryRun, s.Refused, s.Failed, format.Bytes(s.Estimate))
+	fmt.Fprintf(&b, "done %d · dry run %d · refused %d · failed %d\n", s.Done, s.DryRun, s.Refused, s.Failed)
+	if s.DryRun > 0 {
+		fmt.Fprintf(&b, "Dry run: about %s would be removed. Nothing was changed.\n", format.Bytes(s.Estimate))
+	}
+	if s.Done > 0 {
+		// Moved, deleted and delegated space are never added together.
+		var parts []string
+		for _, t := range []struct {
+			n    int64
+			what string
+		}{{s.Trashed, "moved to the " + clean.TrashName}, {s.Deleted, "deleted"}, {s.ByTool, "delegated to the owners' commands"}} {
+			if t.n > 0 {
+				parts = append(parts, format.Bytes(t.n)+" "+t.what)
+			}
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(&b, "About %s; free space grew by %s (measured).\n", strings.Join(parts, ", "), format.Bytes(s.Freed))
+		}
+		if s.Trashed > 0 {
+			fmt.Fprintf(&b, "Empty the %s to reclaim what was moved there.\n", clean.TrashName)
+		}
+	}
 	return b.String()
 }

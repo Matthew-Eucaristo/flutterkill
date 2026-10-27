@@ -72,8 +72,8 @@ func runCapabilities(args []string, stdout io.Writer) error {
 	return contract.Encode(stdout, contract.NewCapabilities(contract.NewTool(buildVersion()), clean.TrashName))
 }
 
-// load scans every root; machine-wide caches come from the first one only,
-// so they are listed once.
+// load scans every root; machine-wide caches come from the first root that
+// loads, so they are listed once.
 func load(roots []string, global, measure bool) ([]*contract.Entry, int, []string, error) {
 	env := defaultEnv()
 	home := env.Home
@@ -82,12 +82,13 @@ func load(roots []string, global, measure bool) ([]*contract.Entry, int, []strin
 	var warnings []string
 	projects := 0
 	seen := map[string]bool{}
-	for i, root := range roots {
-		inv, err := inventory.Load(inventory.Options{Root: root, Global: global && i == 0, Env: env})
+	for _, root := range roots {
+		inv, err := inventory.Load(inventory.Options{Root: root, Global: global, Env: env})
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: %v", format.Tilde(root, home), err))
 			continue
 		}
+		global = false
 		if measure {
 			inv.MeasureAll()
 		}

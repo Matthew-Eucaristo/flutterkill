@@ -54,7 +54,7 @@ flutterkill --older-than 1y --yes             # trash artifacts of year-old proj
 | `q` / `esc` | Quit and print the receipt. While a removal runs, it first cancels the queue |
 | `ctrl+c` | Same as `q`; press again to quit at once |
 
-Each row shows a size bar, its size, last activity and a safety label: **● safe** (rebuilt or re-downloaded on demand) or **▲ caution** (still allowed, but a scanned project uses it, such as a pinned FVM SDK, or it is cleaned by the tool's own command, which cannot be undone). The panel under the list says where the item is, how it comes back and any error. Marks: `○` not selected, `◐` partly, `●` selected, `◌` queued or running, `✓` done, `✗` failed. Every state has its own glyph, so it reads the same with `NO_COLOR`.
+Each row shows a size bar, its size, last activity and a safety label: **● safe** (a project's build output, recreated by its next build) or **▲ caution** (a machine-wide cache: every project shares it, a scanned project may pin it, such as an FVM SDK, and some are cleaned by the owner's own command, which cannot be undone). These are the same levels as `scan --json` (`safe` / `review`), so decruft shows the same judgement. The panel under the list says where the item is, how it comes back and any error. Marks: `○` not selected, `◐` partly, `●` selected, `◌` queued or running, `✓` done, `✗` failed. Every state has its own glyph, so it reads the same with `NO_COLOR`.
 
 | Flag | Meaning |
 | --- | --- |

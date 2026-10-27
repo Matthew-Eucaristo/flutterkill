@@ -219,3 +219,18 @@ func TestContractUsageErrors(t *testing.T) {
 	}
 	stdin = os.Stdin
 }
+
+func TestApplyTextKeepsKindsApart(t *testing.T) {
+	root := project(t)
+	it := scanDoc(t, "--no-global", root).Items[0]
+	stdin = strings.NewReader(plan(it))
+	t.Cleanup(func() { stdin = os.Stdin })
+	var out bytes.Buffer
+	if err := run([]string{"apply", "--plan", "-", "--permanent", root}, &out); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "deleted; free space grew by") || !strings.Contains(s, "(measured)") || strings.Contains(s, "moved to the") {
+		t.Errorf("text receipt:\n%s", s)
+	}
+}

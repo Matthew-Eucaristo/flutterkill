@@ -4,7 +4,7 @@
 class Flutterkill < Formula
   desc "Reclaim disk space from Flutter/Dart build artifacts and caches"
   homepage "https://github.com/Matthew-Eucaristo/flutterkill"
-  url "https://github.com/Matthew-Eucaristo/flutterkill/archive/refs/tags/v0.1.0.tar.gz"
+  url "https://github.com/Matthew-Eucaristo/flutterkill/archive/refs/tags/v0.3.0.tar.gz"
   sha256 "REPLACE_WITH_SHA256_OF_THE_TAG_TARBALL"
   license "MIT"
   head "https://github.com/Matthew-Eucaristo/flutterkill.git", branch: "main"
@@ -17,11 +17,13 @@ class Flutterkill < Formula
 
   test do
     assert_match version.to_s, shell_output("#{bin}/flutterkill --version")
+    assert_match "\"schema_version\": 1", shell_output("#{bin}/flutterkill capabilities --json")
 
-    (testpath/"app/pubspec.yaml").write "name: demo_app\n"
-    (testpath/"app/build").mkpath
-    output = shell_output("#{bin}/flutterkill --json --no-global #{testpath}")
-    assert_match "demo_app", output
-    assert_path_exists testpath/"app/build" # --json never removes anything
+    (testpath/"dev/app/pubspec.yaml").write "name: demo_app\n"
+    (testpath/"dev/app/build/blob").write "x"
+    output = shell_output("#{bin}/flutterkill scan --json --no-global #{testpath}/dev")
+    assert_match "\"name\": \"demo_app\"", output
+    assert_match "\"kind\": \"build\"", output
+    assert_path_exists testpath/"dev/app/build/blob" # scan never changes anything
   end
 end
