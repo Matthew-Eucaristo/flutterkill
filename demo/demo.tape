@@ -7,31 +7,39 @@ Set FontSize 15
 Set Width 1280
 Set Height 640
 Set Padding 16
-Set Framerate 24
+Set Framerate 20
 Set TypingSpeed 60ms
 
 Hide
 Type "source demo/setup.sh && clear" Enter
-Sleep 20s
+Sleep 25s
 Show
 
+# Projects, biggest first, with last activity and a safety label.
 Type "flutterkill" Sleep 400ms Enter
-Sleep 2.5s
-Type "l" Sleep 800ms
+Sleep 3s
+# Oldest first: the archived project, untouched for two years, rises to the top.
+Type "o" Sleep 2s
+# The cursor follows it: open it and pick two artifacts.
+Type "l" Sleep 1s
+Down Sleep 600ms
+Space Sleep 500ms
+Down Sleep 600ms
+Space Sleep 1s
+# The confirmation lists exactly what moves to the Trash.
+Type "d" Sleep 2.5s
+Type "y" Sleep 2.5s
+# Machine-wide caches: which SDK and Gradle versions a project still pins.
+Tab Sleep 2s
 Down Sleep 500ms
-Space Sleep 400ms
-Down Sleep 500ms
-Space Sleep 800ms
-Type "d" Sleep 2s
-Type "y" Sleep 2s
-Type "o" Sleep 1.2s
-Tab Sleep 1.5s
-Down Sleep 500ms
-Down Sleep 2.5s
+Down Sleep 1.8s
+Down Sleep 1.5s
+Down Sleep 1.8s
+# The legend, then quit: the receipt keeps measured numbers.
 Type "?" Sleep 3s
 Type "q" Sleep 400ms
-Type "q" Sleep 3s
+Type "q" Sleep 3.5s
 
 Hide
 Type "cd / && { command -v hdiutil >/dev/null && hdiutil detach -quiet /tmp/flutterkill-demo/home; rm -rf /tmp/flutterkill-demo; }" Enter
-Sleep 3s
+Sleep 4s
