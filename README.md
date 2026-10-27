@@ -171,6 +171,18 @@ flutterkill --json | jq '.projects[] | select(.last_activity < "2026-01-01") | .
 
 Sizes are disk usage in bytes (like `du`), shown with decimal units (1 GB = 10⁹ bytes) to match Finder.
 
+## Machine contract
+
+For tools that build on flutterkill, such as [decruft](https://github.com/Matthew-Eucaristo/decruft), flutterkill speaks the same versioned contract as [fell](https://github.com/Matthew-Eucaristo/fell) and [nodekill](https://github.com/Matthew-Eucaristo/nodekill):
+
+```sh
+flutterkill capabilities --json                       # what this build can do
+flutterkill scan --json [--no-global] [root...]       # items with ids, fingerprints and safety reasons (read-only)
+flutterkill apply --plan - [--dry-run] [--permanent] [--json] [root...]   # act on ids + fingerprints
+```
+
+A caller never deletes paths itself: it sends back `{id, fingerprint}` pairs, and flutterkill scans again, refuses anything that changed, and runs its own guards before removing. See [docs/contract.md](docs/contract.md).
+
 ## Development
 
 ```sh
@@ -181,7 +193,7 @@ go run . --dry-run
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md). Release notes: [GitHub Releases](https://github.com/Matthew-Eucaristo/flutterkill/releases). The GIF at the top is recorded locally (not in CI) with [VHS](https://github.com/charmbracelet/vhs): `vhs demo/demo.tape`. It runs against the synthetic projects and caches from `demo/setup.sh` in a temporary `HOME` (a small disk image on macOS, so its Trash and free space are the image's own), never against your machine.
 
-Layout: `internal/scan` (find + measure, read-only), `internal/caches` (global cache catalog), `internal/clean` (guard + removal — the only code that deletes), `internal/inventory` (parallel measuring), `internal/ui` (Bubble Tea), `internal/report` (text/JSON).
+Layout: `internal/scan` (find + measure, read-only), `internal/caches` (global cache catalog), `internal/clean` (guard + removal — the only code that deletes), `internal/inventory` (parallel measuring), `internal/ui` (Bubble Tea), `internal/report` (text/JSON), `internal/contract` (the machine contract: scan document, plans, apply).
 
 Adding an artifact directory is one line in `scan.ArtifactDirs`; adding a global cache is one entry in `caches.rawCatalog`. Please include a test and a note on how the directory is regenerated.
 

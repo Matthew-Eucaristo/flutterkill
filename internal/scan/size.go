@@ -2,6 +2,7 @@ package scan
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 )
 
@@ -33,3 +34,14 @@ func DirSize(path string) int64 {
 }
 
 type fileID struct{ dev, ino uint64 }
+
+// Identity returns the device and inode of path itself (symlinks are not
+// followed), for fingerprints; 0, 0 when unknown.
+func Identity(path string) (dev, ino uint64) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return 0, 0
+	}
+	_, id, _ := diskUsage(info)
+	return id.dev, id.ino
+}

@@ -9,6 +9,7 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 - `internal/inventory` — load + parallel measuring shared by TUI and `--list`/`--json`.
 - `internal/ui` — Bubble Tea model (`model.go`) and rendering (`view.go`). Look follows `fell` (family reference): header with mode and free space, bar/SIZE/ACTIVE/SAFETY columns, `● safe`/`▲ caution` labels, separator + detail panel, summary, key hints, `?` legend.
 - `internal/report` — text/JSON output and the exit receipt. `main.go` — flags and mode dispatch (`run(args, stdout)` is testable).
+- `internal/contract` + `commands.go` — the family machine contract (schema_version 1, `docs/contract.md`): `capabilities --json`, `scan --json`, `apply --plan`. Same envelope as fell/nodekill; decruft delegates through it. Additive changes only within a schema version; the legacy `--json` stays as it is.
 - `packaging/homebrew/flutterkill.rb` — source-build formula template for the tap; `RELEASING.md` — release steps.
 - `demo/` — synthetic workspace (`setup.sh`, a sparse disk image as `HOME` on macOS) and VHS tape; `demo/demo.gif` is rendered locally and shown at the top of the README.
 
@@ -17,7 +18,8 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 - Artifacts match only by position next to `pubspec.yaml` (`scan.ArtifactDirs`), never by name alone, and are refused if they hold git-tracked files or a top-level `pubspec.yaml`/`.git`.
 - Refuse symlinks; never follow them when measuring or deleting.
 - Default is Trash; permanent deletion only with `--permanent` or the two built-in commands.
-- `--dry-run`, `--list`, `--json` must never change the filesystem.
+- `--dry-run`, `--list`, `--json` and `scan` must never change the filesystem.
+- `apply` acts only on a fresh scan's item whose fingerprint matches the plan, runs the `clean.Check*` guards (refused, not failed, when they say no), then removes through `Cleaner`; plans reject unknown fields, and consent comes only from flags.
 - Removals run one at a time (TUI queue, `--yes` loop) via `Cleaner.RemoveArtifact`/`RemoveCache`, which measure free space before/after. Receipts keep trashed, deleted and delegated (tool command) apart. First `ctrl+c`/`q` cancels the queue and lets the running item finish.
 - No blocking work in `Update` or `View`: scans, sizes, removals and `FreeBytes` run in `tea.Cmd`s; `View` never mutates state (scrolling is clamped in `Update`).
 - Every row state has its own glyph (`○ ◐ ● ◌ ✓ ✗`) so the TUI reads without colour.

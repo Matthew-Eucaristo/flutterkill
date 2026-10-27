@@ -30,6 +30,9 @@ const usage = `flutterkill - reclaim disk space from Flutter/Dart projects and c
 
 Usage:
   flutterkill [flags] [root]      root defaults to ~/dev, else the current directory
+  flutterkill scan --json [--no-global] [root...]       contract scan (read-only)
+  flutterkill apply --plan <file|-> [flags] [root...]   act on ids + fingerprints from a scan
+  flutterkill capabilities --json                       describe the contract
 
 Interactive by default. Removed items go to the Trash unless --permanent.
 
@@ -37,13 +40,32 @@ Flags:
 `
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout); err != nil {
+	err := run(os.Args[1:], os.Stdout)
+	var ee *exitError
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+	case errors.As(err, &ee):
+		if ee.err != nil {
+			fmt.Fprintln(os.Stderr, "flutterkill:", ee.err)
+		}
+		os.Exit(ee.code)
+	default:
 		fmt.Fprintln(os.Stderr, "flutterkill:", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string, stdout io.Writer) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "scan":
+			return runScan(args[1:], stdout)
+		case "apply":
+			return runApply(args[1:], stdout)
+		case "capabilities":
+			return runCapabilities(args[1:], stdout)
+		}
+	}
 	flags := flag.NewFlagSet("flutterkill", flag.ContinueOnError)
 	var (
 		dryRun    = flags.Bool("dry-run", false, "never remove anything; show what would be freed")
@@ -80,7 +102,7 @@ func run(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	opts := inventory.Options{Root: root, Global: !*noGlobal, Env: caches.DefaultEnv()}
+	opts := inventory.Options{Root: root, Global: !*noGlobal, Env: defaultEnv()}
 	if *olderThan != "" {
 		if opts.OlderThan, err = format.ParseAge(*olderThan); err != nil {
 			return err
