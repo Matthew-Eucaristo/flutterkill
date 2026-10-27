@@ -5,14 +5,17 @@ Thanks for helping. flutterkill aims to stay small, safe and easy to audit.
 ## Development
 
 ```sh
-go test ./...
+gofmt -l .                 # must print nothing
 go vet ./...
 GOOS=linux go vet ./...
 GOOS=windows go vet ./...
+go test -race ./...
 go run . --dry-run
 ```
 
 Never test removal against real directories; tests use temp dirs and the TUI has `--dry-run`.
+
+If you change what the TUI shows, re-record the README demo with [VHS](https://github.com/charmbracelet/vhs): `vhs demo/demo.tape` from the repository root. It builds the tool and runs it against synthetic projects in a temporary `HOME` (see `demo/setup.sh`); commit the regenerated `demo/demo.gif`. CI never renders it.
 
 ## Ground rules
 

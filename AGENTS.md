@@ -7,10 +7,10 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 - `internal/caches` — fixed catalog of global caches (`rawCatalog`), per-version groups (`groups`: FVM, Gradle dists, old Android Studio), the `Allowed` rules (exact paths + `Children`) and the allowed clean-up commands. Per-OS locations come from `Env` (Windows: `%LOCALAPPDATA%`).
 - `internal/clean` — the only code that removes anything. `guard.go` checks every path right before removal; `trash_{darwin,linux,windows}.go` move to the OS trash.
 - `internal/inventory` — load + parallel measuring shared by TUI and `--list`/`--json`.
-- `internal/ui` — Bubble Tea model (`model.go`) and rendering (`view.go`).
-- `internal/report` — text/JSON output. `main.go` — flags and mode dispatch.
+- `internal/ui` — Bubble Tea model (`model.go`) and rendering (`view.go`). Look follows `fell` (family reference): header with mode and free space, bar/SIZE/ACTIVE/SAFETY columns, `● safe`/`▲ caution` labels, separator + detail panel, summary, key hints, `?` legend.
+- `internal/report` — text/JSON output and the exit receipt. `main.go` — flags and mode dispatch (`run(args, stdout)` is testable).
 - `packaging/homebrew/flutterkill.rb` — source-build formula template for the tap; `RELEASING.md` — release steps.
-- `demo/` — synthetic workspace (`setup.sh`) and VHS tape for the README demo.
+- `demo/` — synthetic workspace (`setup.sh`, a sparse disk image as `HOME` on macOS) and VHS tape; `demo/demo.gif` is rendered locally and shown at the top of the README.
 
 ## Invariants
 - Never remove a path that did not pass `clean.CheckArtifact` / `CheckCache` / `CheckCommand`.
@@ -18,6 +18,9 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 - Refuse symlinks; never follow them when measuring or deleting.
 - Default is Trash; permanent deletion only with `--permanent` or the two built-in commands.
 - `--dry-run`, `--list`, `--json` must never change the filesystem.
+- Removals run one at a time (TUI queue, `--yes` loop) via `Cleaner.RemoveArtifact`/`RemoveCache`, which measure free space before/after. Receipts keep trashed, deleted and delegated (tool command) apart. First `ctrl+c`/`q` cancels the queue and lets the running item finish.
+- No blocking work in `Update` or `View`: scans, sizes, removals and `FreeBytes` run in `tea.Cmd`s; `View` never mutates state (scrolling is clamped in `Update`).
+- Every row state has its own glyph (`○ ◐ ● ◌ ✓ ✗`) so the TUI reads without colour.
 
 ## Release & privacy
 - Public repo. No PII anywhere (code, tests, docs, demos, screenshots, commit messages): no real home paths, usernames, hostnames, project names, emails or timezones. Use placeholders like `~/dev/my_app`; demos only via `demo/setup.sh`.

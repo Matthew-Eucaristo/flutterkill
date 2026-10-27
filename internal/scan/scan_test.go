@@ -264,3 +264,42 @@ func TestGradleDist(t *testing.T) {
 		t.Errorf("gradle dists: a=%q b=%q c=%q d=%q", ps["a"].GradleDist, ps["b"].GradleDist, ps["c"].GradleDist, ps["d"].GradleDist)
 	}
 }
+
+func TestSymlinkedProjectDirIsNotFollowed(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	mk(t, outside, "other/pubspec.yaml", "other/build/x")
+	if err := os.Symlink(filepath.Join(outside, "other"), filepath.Join(root, "link")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	mk(t, root, "app/pubspec.yaml", "app/build/x")
+	got := find(t, root)
+	if _, ok := got["link"]; ok || len(got) != 1 {
+		t.Errorf("projects = %v, want only app (symlinks are not followed)", got)
+	}
+}
+
+func TestUnreadableDirIsSkipped(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX permissions and a non-root user")
+	}
+	root := t.TempDir()
+	mk(t, root, "app/pubspec.yaml", "app/build/x", "locked/hidden/pubspec.yaml", "locked/hidden/build/x")
+	locked := filepath.Join(root, "locked")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	got := find(t, root) // fails the test on error
+	if _, ok := got["app"]; !ok || len(got) != 1 {
+		t.Errorf("projects = %v, want only app", got)
+	}
+	if n := DirSize(root); n <= 0 {
+		t.Errorf("DirSize with an unreadable subdir = %d", n)
+	}
+}
+
+func TestUnreadableRootIsAnError(t *testing.T) {
+	if _, err := FindProjects(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Error("missing root: no error")
+	}
+}

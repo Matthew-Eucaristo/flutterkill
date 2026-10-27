@@ -7,9 +7,10 @@ The Homebrew formula lives in [Matthew-Eucaristo/homebrew-tap](https://github.co
 ## One-time setup
 
 - Enable **Settings → Code security → Private vulnerability reporting** (referenced by SECURITY.md).
-- Record the demo GIF from the synthetic workspace (`brew install vhs`, then `vhs demo/demo.tape`), check that it shows no real paths, commit `demo/demo.gif` and embed it at the top of the README.
 
 ## Each release
+
+If the TUI changed, re-record the demo locally first (`brew install vhs`, then `vhs demo/demo.tape`), check that no frame shows a real path, and commit `demo/demo.gif`.
 
 ```sh
 V=0.1.0

@@ -15,17 +15,11 @@ import (
 	"github.com/Matthew-Eucaristo/flutterkill/internal/scan"
 )
 
-// Result summarises a session, printed after the TUI exits.
-type Result struct {
-	Bytes  int64
-	Items  int
-	Failed int
-}
-
 type status int
 
 const (
 	idle status = iota
+	queued
 	working
 	done
 	failed
@@ -81,15 +75,16 @@ func (r row) leaves() []string {
 
 type (
 	loadedMsg struct {
-		inv *inventory.Inventory
-		err error
+		inv  *inventory.Inventory
+		free int64
+		err  error
 	}
 	sizedMsg    inventory.Sized
 	measuredMsg struct{}
 	cleanedMsg  struct {
-		key   string
-		bytes int64
-		err   error
+		key  string
+		out  clean.Outcome
+		free int64
 	}
 )
 
@@ -103,6 +98,7 @@ type Model struct {
 	err       error
 	sizes     chan inventory.Sized
 	measuring bool
+	freeDisk  int64 // on the root's volume, -1 if unknown
 
 	tab       tab
 	sort      sortBy
@@ -116,9 +112,11 @@ type Model struct {
 	status   map[string]status
 	errs     map[string]string
 	confirm  []string // leaf keys awaiting y/n
-	quitWarn bool     // ctrl+c pressed once while removals run
+	queue    []string // confirmed leaf keys, removed one at a time
+	legend   bool
+	quitWarn bool // asked to quit while a removal runs
 
-	result Result
+	outcomes []clean.Outcome
 }
 
 // New builds a model that scans with opts and removes through cleaner.
@@ -128,18 +126,18 @@ func New(opts inventory.Options, cleaner *clean.Cleaner) *Model {
 		opts: opts, cleaner: cleaner, home: home,
 		expanded: map[string]bool{}, selected: map[string]bool{},
 		status: map[string]status{}, errs: map[string]string{},
-		width: 80, height: 24,
+		width: 80, height: 24, freeDisk: -1,
 	}
 }
 
-// Result reports what was cleaned once the program has exited.
-func (m *Model) Result() Result { return m.result }
+// Outcomes reports what was removed, in order, once the program has exited.
+func (m *Model) Outcomes() []clean.Outcome { return m.outcomes }
 
 func (m *Model) Init() tea.Cmd {
 	opts := m.opts
 	return func() tea.Msg {
 		inv, err := inventory.Load(opts)
-		return loadedMsg{inv, err}
+		return loadedMsg{inv, clean.FreeBytes(opts.Root), err}
 	}
 }
 
@@ -154,6 +152,7 @@ func waitSize(ch chan inventory.Sized) tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer m.scroll()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -162,7 +161,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
-		m.inv = msg.inv
+		m.inv, m.freeDisk = msg.inv, msg.free
 		m.sizes = make(chan inventory.Sized)
 		m.measuring = true
 		m.inv.Measure(m.sizes)
@@ -181,18 +180,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.measuring = false
 	case cleanedMsg:
 		delete(m.selected, msg.key)
-		if msg.err != nil {
+		m.outcomes = append(m.outcomes, msg.out)
+		if msg.out.Err != nil {
 			m.status[msg.key] = failed
-			m.errs[msg.key] = msg.err.Error()
-			m.result.Failed++
+			m.errs[msg.key] = msg.out.Err.Error()
 		} else {
 			m.status[msg.key] = done
-			m.result.Bytes += max(msg.bytes, 0)
-			m.result.Items++
+			delete(m.errs, msg.key)
 		}
-		if !m.busy() {
-			m.quitWarn = false
+		if msg.free >= 0 {
+			m.freeDisk = msg.free
 		}
+		return m, m.next()
 	case tea.KeyPressMsg:
 		return m, m.key(msg.String())
 	}
@@ -201,12 +200,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) key(k string) tea.Cmd {
 	if k == "ctrl+c" {
-		// Quitting mid-removal can leave a half-deleted directory; ask twice.
+		// Quitting mid-removal can leave a half-deleted directory: the first
+		// ctrl+c cancels what is queued and lets the running item finish.
 		if m.busy() && !m.quitWarn {
-			m.quitWarn = true
+			m.stop()
 			return nil
 		}
 		return tea.Quit
+	}
+	if m.legend {
+		m.legend = false
+		return nil
 	}
 	if m.confirm != nil {
 		if k == "y" || k == "Y" {
@@ -227,17 +231,21 @@ func (m *Model) key(k string) tea.Cmd {
 	switch k {
 	case "q", "esc":
 		if m.busy() {
-			return nil // let running removals finish; ctrl+c still quits
+			m.stop() // let the running removal finish; ctrl+c still quits
+			return nil
 		}
 		return tea.Quit
+	case "?":
+		m.legend = true
+		return nil
 	case "up", "k":
 		i--
 	case "down", "j":
 		i++
 	case "pgup", "ctrl+u":
-		i -= m.bodyHeight()
+		i -= m.listHeight()
 	case "pgdown", "ctrl+d":
-		i += m.bodyHeight()
+		i += m.listHeight()
 	case "home", "g":
 		i = 0
 	case "end", "G":
@@ -253,7 +261,7 @@ func (m *Model) key(k string) tea.Cmd {
 		}
 		m.cursorKey, m.offset = "", 0
 		return nil
-	case "s":
+	case "o", "s": // s was the sort key before v0.3
 		m.sort = (m.sort + 1) % 3
 		return nil
 	case "right", "l", "enter":
@@ -297,7 +305,7 @@ func (m *Model) key(k string) tea.Cmd {
 
 // toggle selects every pending leaf in keys, or clears them if all were set.
 func (m *Model) toggle(keys []string) {
-	keys = slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return m.status[k] == done || m.status[k] == working })
+	keys = slices.DeleteFunc(slices.Clone(keys), m.locked)
 	all := len(keys) > 0
 	for _, k := range keys {
 		all = all && m.selected[k]
@@ -318,7 +326,7 @@ func (m *Model) askDelete(rows []row, i int) {
 	if len(keys) == 0 && len(rows) > 0 {
 		keys = rows[i].leaves()
 	}
-	keys = slices.DeleteFunc(keys, func(k string) bool { s := m.status[k]; return s == done || s == working })
+	keys = slices.DeleteFunc(keys, m.locked)
 	if len(keys) > 0 {
 		slices.Sort(keys)
 		m.confirm = keys
@@ -342,49 +350,61 @@ func (m *Model) selectedHere(rows []row) []string {
 	return keys
 }
 
-func (m *Model) startClean() tea.Cmd {
-	var cmds []tea.Cmd
-	for _, k := range m.confirm {
-		m.status[k] = working
-		cmds = append(cmds, m.cleanCmd(k))
+// locked reports whether a leaf can no longer be selected or removed.
+func (m *Model) locked(key string) bool {
+	switch m.status[key] {
+	case queued, working, done:
+		return true
 	}
-	m.confirm = nil
-	return tea.Batch(cmds...)
+	return false
 }
 
-// cleanCmd copies everything it needs on the UI goroutine; the returned
-// command touches no model state.
-func (m *Model) cleanCmd(key string) tea.Cmd {
+// startClean queues the confirmed keys. They run one at a time, so the free
+// space measured around each removal belongs to that removal.
+func (m *Model) startClean() tea.Cmd {
+	for _, k := range m.confirm {
+		m.status[k] = queued
+		delete(m.errs, k)
+	}
+	m.queue = append(m.queue, m.confirm...)
+	m.confirm = nil
+	if m.working() {
+		return nil
+	}
+	return m.next()
+}
+
+// next starts the first queued removal. The returned command copies what it
+// needs on the UI goroutine and touches no model state.
+func (m *Model) next() tea.Cmd {
+	if len(m.queue) == 0 {
+		m.quitWarn = false
+		return nil
+	}
+	key := m.queue[0]
+	m.queue = m.queue[1:]
+	m.status[key] = working
 	c, p, a := m.lookup(key)
-	cleaner, bytes := m.cleaner, m.size(key)
+	cleaner, bytes, root := m.cleaner, m.size(key), m.opts.Root
 	if c != nil {
 		cache := *c
-		paths := cache.SizePaths
-		if len(paths) == 0 {
-			paths = []string{cache.Path}
-		}
 		return func() tea.Msg {
-			if bytes < 0 {
-				bytes = sizeOf(paths...)
-			}
-			return cleanedMsg{key, bytes, cleaner.Cache(&cache)}
+			return cleanedMsg{key, cleaner.RemoveCache(&cache, bytes), clean.FreeBytes(root)}
 		}
 	}
-	project, name, path := p.Path, a.Name, a.Path
+	project, name := p.Path, a.Name
 	return func() tea.Msg {
-		if bytes < 0 { // deleted before measuring finished
-			bytes = sizeOf(path)
-		}
-		return cleanedMsg{key, bytes, cleaner.Artifact(project, name)}
+		return cleanedMsg{key, cleaner.RemoveArtifact(project, name, bytes), clean.FreeBytes(root)}
 	}
 }
 
-func sizeOf(paths ...string) int64 {
-	var n int64
-	for _, p := range paths {
-		n += scan.DirSize(p)
+// stop cancels queued removals; the running one finishes.
+func (m *Model) stop() {
+	for _, k := range m.queue {
+		m.status[k] = idle // still selected, so d resumes
 	}
-	return n
+	m.queue = nil
+	m.quitWarn = true
 }
 
 // lookup finds the cache or project artifact behind a leaf key.
@@ -406,13 +426,28 @@ func (m *Model) lookup(key string) (*caches.Cache, *scan.Project, *scan.Artifact
 	return nil, nil, nil
 }
 
-func (m *Model) busy() bool {
+func (m *Model) busy() bool { return m.working() || len(m.queue) > 0 }
+
+func (m *Model) working() bool {
 	for _, s := range m.status {
 		if s == working {
 			return true
 		}
 	}
 	return false
+}
+
+// scroll keeps the cursor row inside the visible list.
+func (m *Model) scroll() {
+	rows := m.rows()
+	cur, body := m.cursor(rows), m.listHeight()
+	if cur < m.offset {
+		m.offset = cur
+	}
+	if cur >= m.offset+body {
+		m.offset = cur - body + 1
+	}
+	m.offset = max(0, min(m.offset, len(rows)-body))
 }
 
 // rows lists what the current tab shows, in the current sort order.

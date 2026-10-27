@@ -2,23 +2,7 @@
 
 Reclaim disk space from Flutter and Dart projects — like [npkill](https://github.com/voidcosmos/npkill), but it knows Flutter.
 
-```
- flutterkill  ● trash  ·  9.8 GB reclaimable  ·  6 projects  ·  ~/dev
-
-  1 Projects 4.1 GB    2 Global caches 5.7 GB
-       SIZE  ACTIVE     PROJECT  (sort: size)
- ◐    2.3 GB  1.2y ago   ▾ shop_app  clients/shop_app
-▌●  840.0 MB                build/
- ○    1.1 GB                .dart_tool/
- ○  310.0 MB                ios/Pods/
- ○   90.0 MB                android/.gradle/
- ○  950.0 MB  4mo ago    ▸ weather  side/weather
- ○  610.0 MB  today      ▸ my_app  my_app
-
-  ~/dev/clients/shop_app/build  Build output. Recreated by the next `flutter build` / `flutter run`.
-  1 selected (840.0 MB)
-  ↑↓ move  space select  a all  →← expand  tab switch  s sort  d delete  q quit
-```
+![flutterkill: a scan of three Flutter projects, two build artifacts moved to the Trash, then the global caches](demo/demo.gif)
 
 A Flutter workspace grows quietly: every project keeps `build/`, `.dart_tool/`, CocoaPods and Gradle state, and the machine collects a pub cache, Gradle downloads, old FVM SDKs, old Android Studio caches and Xcode DerivedData. It works on macOS, Linux and Windows, for Android, iOS, macOS, Linux, Windows and web targets alike. `flutterkill` finds all of it, shows how big it is and which projects you haven't touched in months, and moves what you pick to the Trash.
 
@@ -64,9 +48,13 @@ flutterkill --older-than 1y --yes             # trash artifacts of year-old proj
 | `a` | Select / unselect everything in the tab |
 | `→` / `l` / `enter`, `←` / `h` | Expand / collapse a project |
 | `tab` / `shift+tab`, `1`, `2` | Switch between Projects and Global caches |
-| `s` | Sort by size, oldest activity, or name |
+| `o` | Sort by size, oldest activity, or name (`s` also works) |
 | `d` / `x` / `delete` / `backspace` | Remove the selection (or the row under the cursor) after a `y/N` prompt |
-| `q` / `esc` | Quit and print what was freed |
+| `?` | Legend: safety labels, marks and bars |
+| `q` / `esc` | Quit and print the receipt. While a removal runs, it first cancels the queue |
+| `ctrl+c` | Same as `q`; press again to quit at once |
+
+Each row shows a size bar, its size, last activity and a safety label: **● safe** (rebuilt or re-downloaded on demand) or **▲ caution** (still allowed, but a scanned project uses it, such as a pinned FVM SDK, or it is cleaned by the tool's own command, which cannot be undone). The panel under the list says where the item is, how it comes back and any error. Marks: `○` not selected, `◐` partly, `●` selected, `◌` queued or running, `✓` done, `✗` failed. Every state has its own glyph, so it reads the same with `NO_COLOR`.
 
 | Flag | Meaning |
 | --- | --- |
@@ -121,10 +109,10 @@ Every removal goes through a guard in [`internal/clean/guard.go`](internal/clean
 4. **Global caches** are removed only if the path is in the fixed catalog in [`internal/caches`](internal/caches) (or is a direct child of one of its per-version directories: FVM versions, Gradle wrapper distributions, or Android Studio caches other than the newest version), is not a symlink, and is specific: `/`, top-level directories, your home directory or anything containing it or the scan root are refused, even when `PUB_CACHE`, `GRADLE_USER_HOME` or `FVM_CACHE_PATH` point there.
 5. **Commands** are limited to `dart pub cache clean --force` and `xcrun simctl delete unavailable`; these are permanent and the confirmation marks them in red.
 6. **You see what goes.** The confirmation lists the items it will remove (with a count when the list is longer than the screen). A delete only reaches items visible in the current tab; selections in the other tab are left alone.
-7. **Trash by default**: `/usr/bin/trash` on macOS 15+ (Finder on older versions), the freedesktop.org home trash on Linux, the Recycle Bin on Windows. On Linux, moves across filesystems are refused rather than copied; on Windows, drives without a Recycle Bin (network, removable) and paths of 260+ characters are refused, and Windows asks before deleting anything too big to recycle; use `--permanent` there. `ctrl+c` while removals run asks for a second press.
+7. **Trash by default**: `/usr/bin/trash` on macOS 15+ (Finder on older versions), the freedesktop.org home trash on Linux, the Recycle Bin on Windows. On Linux, moves across filesystems are refused rather than copied; on Windows, drives without a Recycle Bin (network, removable) and paths of 260+ characters are refused, and Windows asks before deleting anything too big to recycle; use `--permanent` there. Removals run one at a time; `ctrl+c` or `q` cancels what is still queued, lets the running item finish, and a second `ctrl+c` quits at once. `--yes` stops before the next item on `ctrl+c`.
 8. `--dry-run` runs every check and changes nothing. `--json` and `--list` never remove anything.
 
-Moving to the Trash does not free space until you empty it — flutterkill reminds you on exit.
+Moving to the Trash does not free space until you empty it. On exit flutterkill prints a receipt: one line per item, then moved to the Trash, deleted, and delegated to a tool's own command as separate totals, each with the change in free disk space measured before and after, not assumed.
 
 ## Privacy and uninstall
 
@@ -191,7 +179,7 @@ go vet ./...
 go run . --dry-run
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md). Release notes: [GitHub Releases](https://github.com/Matthew-Eucaristo/flutterkill/releases). To record a GIF demo from a synthetic workspace (no real paths), install [VHS](https://github.com/charmbracelet/vhs) and run `vhs demo/demo.tape`.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md). Release notes: [GitHub Releases](https://github.com/Matthew-Eucaristo/flutterkill/releases). The GIF at the top is recorded locally (not in CI) with [VHS](https://github.com/charmbracelet/vhs): `vhs demo/demo.tape`. It runs against the synthetic projects and caches from `demo/setup.sh` in a temporary `HOME` (a small disk image on macOS, so its Trash and free space are the image's own), never against your machine.
 
 Layout: `internal/scan` (find + measure, read-only), `internal/caches` (global cache catalog), `internal/clean` (guard + removal — the only code that deletes), `internal/inventory` (parallel measuring), `internal/ui` (Bubble Tea), `internal/report` (text/JSON).
 
