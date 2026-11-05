@@ -17,6 +17,10 @@ Never test removal against real directories; tests use temp dirs and the TUI has
 
 If you change what the TUI shows, re-record the README demo with [VHS](https://github.com/charmbracelet/vhs): `vhs demo/demo.tape` from the repository root. It builds the tool and runs it against synthetic projects in a temporary `HOME` (see `demo/setup.sh`); commit the regenerated `demo/demo.gif`. CI never renders it.
 
+## Website
+
+`site/` is the GitHub Pages site: plain HTML, CSS and JS. Preview it with `site/build.sh /tmp/site/flutterkill && python3 -m http.server -d /tmp/site 8000`, then open http://localhost:8000/flutterkill/. The build needs Go, git and python3: it sources `demo/setup.sh` and runs only `scan --json` and `--list` against that synthetic `HOME` to write `sample.js`; ffmpeg converts the recording when it is installed. It deploys from `main` through `.github/workflows/pages.yml`.
+
 ## Ground rules
 
 - All removal goes through `internal/clean`; every path is checked by `guard.go` right before it is removed. Keep it that way.

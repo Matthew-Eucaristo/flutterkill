@@ -4,6 +4,8 @@ Reclaim disk space from Flutter and Dart projects — like [npkill](https://gith
 
 ![flutterkill: four Flutter projects sorted by last activity, two artifacts of a two-year-old project moved to the Trash, then the machine-wide caches with the FVM and Gradle versions each project pins](demo/demo.gif)
 
+**Website:** [matthew-eucaristo.github.io/flutterkill](https://matthew-eucaristo.github.io/flutterkill/), with a clickable replica fed by `flutterkill scan --json` on the demo workspace.
+
 A Flutter workspace grows quietly: every project keeps `build/`, `.dart_tool/`, CocoaPods and Gradle state, and the machine collects a pub cache, Gradle downloads, old FVM SDKs, old Android Studio caches and Xcode DerivedData. It works on macOS, Linux and Windows, for Android, iOS, macOS, Linux, Windows and web targets alike. `flutterkill` finds all of it, shows how big it is and which projects you haven't touched in months, and moves what you pick to the Trash.
 
 - **Flutter-aware.** Finds projects by `pubspec.yaml` and only reclaims directories at their known place next to it — a folder called `build` anywhere else is never touched.
