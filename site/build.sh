@@ -47,7 +47,9 @@ for it in scan["items"]:
     assert it["path"].startswith("~/"), "path outside the demo HOME: " + it["path"]
 for name in (scan_path, list_path):
     text = open(name).read()
-    for bad in [home, "/Users/", "/home/", "flutterkill-demo"] + ([user] if len(user) > 2 else []):
+    # The user name only as a path component: Flutter's own windows/runner and
+    # linux/runner folders would otherwise trip it on CI, whose user is "runner".
+    for bad in [home, "/Users/", "/home/", "flutterkill-demo"] + ([f"/{user}/"] if len(user) > 2 else []):
         assert bad not in text, f"{name} mentions {bad!r}"
 PY
 
