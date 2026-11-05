@@ -12,6 +12,7 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 - `internal/contract` + `commands.go` — the family machine contract (schema_version 1, `docs/contract.md`): `capabilities --json`, `scan --json`, `apply --plan`. Same envelope as fell/nodekill; decruft delegates through it. Additive changes only within a schema version; the legacy `--json` stays as it is.
 - `packaging/homebrew/flutterkill.rb` — source-build formula template for the tap; `RELEASING.md` — release steps.
 - `demo/` — synthetic workspace (`setup.sh`, a sparse disk image as `HOME` on macOS) and VHS tape; `demo/demo.gif` is rendered locally and shown at the top of the README.
+- `site/` — GitHub Pages site (static HTML/CSS/JS, no third-party requests). `site/build.sh` sources `demo/setup.sh` and runs only read-only `scan --json` / `--list` (under `env -i`, never the real HOME; it fails on any path outside `~/`) to write `sample.js` and the page's `--list` block, so the replica in `app.js` shows real output; it never runs `apply`, `--yes` or the TUI. Keep `app.js` in step with `internal/ui` when the TUI changes visibly. `.github/workflows/pages.yml` deploys on pushes to `main` touching the site, demo or Go code, and on releases.
 
 ## Invariants
 - Never remove a path that did not pass `clean.CheckArtifact` / `CheckCache` / `CheckCommand`.
