@@ -168,7 +168,7 @@
   <div class="wrap">
     <p class="kicker">Machine-wide caches</p>
     <h2>The space no single project owns.</h2>
-    <p class="intro">Shown only if present. Every project shares them, so they are marked <span class="lv caution">▲ caution</span> and live in their own tab. You pick them yourself; <code>--yes</code> never touches them. Settings, plugins, the Android SDK, Flutter SDK checkouts and emulator images are installs, not caches, and are never listed.</p>
+    <p class="intro">Shown only if present. Every project shares them, so they are marked <span class="lv caution">▲ caution</span> and live in their own tab; only a Gradle version no scanned project uses is <span class="lv safe">● safe</span>. You pick them yourself; <code>--yes</code> never touches them. Settings, plugins, the Android SDK, Flutter SDK checkouts and emulator images are installs, not caches, and are never listed.</p>
 
     <div class="cats">
       <article class="cat" style="--c:#4CC3F2">
@@ -181,8 +181,8 @@
       <article class="cat" style="--c:#8BD346">
         <header><i></i><h3>Gradle</h3></header>
         <ul>
-          <li><span>Caches and JDK toolchains</span><code>Trash; run ./gradlew --stop first</code><span class="lv caution">▲ caution</span></li>
-          <li><span>Distributions, one row per version</span><code>Trash; the wrapper re-downloads what a project needs</code><span class="lv caution">▲ caution</span></li>
+          <li><span>Dependency and build caches, JDK toolchains</span><code>Trash; run ./gradlew --stop first</code><span class="lv caution">▲ caution</span></li>
+          <li><span>Distributions and version caches, one row per version</span><code>Trash; the next build with that version restores it</code><span class="lv safe">● safe if unused</span></li>
         </ul>
       </article>
       <article class="cat" style="--c:#2EC4B6">
@@ -215,7 +215,7 @@
     <div class="two pins-wrap">
       <div>
         <h3 class="sub-h">Which versions does anything still use?</h3>
-        <p class="intro">FVM SDKs and Gradle distributions get one row per version, with the scanned projects that pin them (<code>.fvmrc</code>, inherited from parent folders, and <code>gradle-wrapper.properties</code>). The version nobody uses is the easy win.</p>
+        <p class="intro">FVM SDKs, Gradle distributions and Gradle's per-version caches get one row per version, with the scanned projects that pin them (<code>.fvmrc</code>, inherited from parent folders, and every <code>gradle-wrapper.properties</code>, Flutter or native Android). The version nobody uses is the easy win.</p>
       </div>
       <div class="window">
         <div class="titlebar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="title">versions and the projects that pin them</span></div>
@@ -344,14 +344,17 @@ flutterkill --permanent</code></pre>
   21.0 MB   today     my_app              build 12.6 MB · .dart_tool 8.4 MB
 
 GLOBAL CACHES
-  47.2 MB  Pub cache           ~/.pub-cache
-  78.6 MB  Gradle caches       ~/.gradle/caches
-  23.1 MB  FVM Flutter 3.13.9  ~/fvm/versions/3.13.9
-  26.2 MB  FVM Flutter 3.19.6  ~/fvm/versions/3.19.6
-  31.5 MB  FVM Flutter 3.24.5  ~/fvm/versions/3.24.5
-  12.6 MB  Gradle 7.4-all      ~/.gradle/wrapper/dists/gradle-7.4-all
-  14.7 MB  Gradle 7.6-all      ~/.gradle/wrapper/dists/gradle-7.6-all
-  16.8 MB  Gradle 8.3-all      ~/.gradle/wrapper/dists/gradle-8.3-all
+  47.2 MB  Pub cache                ~/.pub-cache
+  47.2 MB  Gradle dependency cache  ~/.gradle/caches/modules-2
+  10.5 MB  Gradle build cache       ~/.gradle/caches/build-cache-1
+  23.1 MB  FVM Flutter 3.13.9       ~/fvm/versions/3.13.9
+  26.2 MB  FVM Flutter 3.19.6       ~/fvm/versions/3.19.6
+  31.5 MB  FVM Flutter 3.24.5       ~/fvm/versions/3.24.5
+  12.6 MB  Gradle 7.4-all           ~/.gradle/wrapper/dists/gradle-7.4-all
+  14.7 MB  Gradle 7.6-all           ~/.gradle/wrapper/dists/gradle-7.6-all
+  16.8 MB  Gradle 8.3-all           ~/.gradle/wrapper/dists/gradle-8.3-all
+  8.4 MB   Gradle 7.4 caches        ~/.gradle/caches/7.4
+  12.6 MB  Gradle 8.3 caches        ~/.gradle/caches/8.3
 
 Reclaimable: 512.8 MB<!--/list--></pre>
     </div>
@@ -435,7 +438,7 @@ brew untap matthew-eucaristo/tap   # only if nothing else is installed from this
     <h2>Fair questions.</h2>
     <details><summary>Isn't this just <code>flutter clean</code> in a loop?</summary><p>No. <code>flutter clean</code> leaves CocoaPods behind, knows nothing about the pub, Gradle, FVM or Xcode caches, cannot tell which project you abandoned a year ago, and deletes instead of using the Trash. flutterkill covers all four.</p></details>
     <details><summary>Will it delete my Flutter SDK or Android SDK?</summary><p>No. The Android SDK, Flutter SDK checkouts and emulator images are installs, not caches, and are deliberately not on the list. FVM's cached SDK versions are listed, one row per version, with the scanned projects that pin each one.</p></details>
-    <details><summary>Why are global caches marked caution?</summary><p>Because every project shares them, a scanned project may pin one (an FVM SDK, a Gradle version), and the pub cache is cleaned by <code>dart pub cache clean --force</code>, which cannot be undone. They come back, but the next build is slower. You can still pick them in the Global caches tab; <code>--yes</code> never reaches them.</p></details>
+    <details><summary>Why are global caches marked caution?</summary><p>Because every project shares them, a scanned project may pin one (an FVM SDK, a Gradle version), and the pub cache is cleaned by <code>dart pub cache clean --force</code>, which cannot be undone. They come back, but the next build is slower. The exception is a Gradle version that no scanned project uses and whose daemon has not run in the last 3 hours: it is marked safe. You can still pick them in the Global caches tab; <code>--yes</code> never reaches them.</p></details>
     <details><summary>I removed 2 GB. Why is my disk not 2 GB emptier?</summary><p>Because it is in the Trash, where you can put it back. The receipt says so and shows the change in free space it measured, instead of the size it hoped for. Empty the Trash to reclaim it.</p></details>
     <details><summary>Does it phone home or keep state?</summary><p>No. No config, cache, log or state files, and no network requests. On Linux, the first move creates the standard <code>~/.local/share/Trash</code> folders if they are missing. This page loads nothing from third parties either.</p></details>
     <details><summary>Can I script it?</summary><p>Yes: <code>--list</code> for a table, <code>--json</code> for the scan, <code>--older-than 1y --yes</code> to trash every artifact of year-old projects (never global caches), and the <a href="https://github.com/Matthew-Eucaristo/flutterkill/blob/main/docs/contract.md">machine contract</a> for tools that build on it.</p></details>

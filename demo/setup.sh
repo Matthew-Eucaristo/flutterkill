@@ -51,7 +51,10 @@ GRADLE=gradle-7.6-all project legacy_app archive/legacy_app 800 3.19.6 build:28 
 project weather side/weather 120 3.24.5 build:20 .dart_tool:15
 project my_app my_app 0 3.24.5 build:12 .dart_tool:8
 # Machine-wide caches: pinned and unpinned SDK and Gradle versions side by side.
-blob "$DEMO/home/.gradle/caches" 75
+blob "$DEMO/home/.gradle/caches/modules-2" 45
+blob "$DEMO/home/.gradle/caches/build-cache-1" 10
+blob "$DEMO/home/.gradle/caches/8.3" 12
+blob "$DEMO/home/.gradle/caches/7.4" 8
 blob "$DEMO/home/.pub-cache/hosted" 45
 blob "$DEMO/home/fvm/versions/3.24.5" 30
 blob "$DEMO/home/fvm/versions/3.19.6" 25

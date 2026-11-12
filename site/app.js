@@ -97,7 +97,7 @@
       }
       p.arts.push({ name: it.name, path: it.path, bytes, key: it.path, action: it.action });
     } else {
-      caches.push({ id: it.id, kind: it.kind, name: it.name, path: it.path, bytes, note: it.explain || "", usedBy: it.used_by || [], command: it.command || [], action: it.action, key: "cache:" + it.id });
+      caches.push({ id: it.id, kind: it.kind, name: it.name, path: it.path, bytes, note: it.explain || "", usedBy: it.used_by || [], command: it.command || [], action: it.action, safe: it.safety && it.safety.level === "safe", daemon: !!(it.safety && it.safety.reasons.some((r) => r.code === "daemon_recent")), key: "cache:" + it.id });
     }
   });
 
@@ -126,7 +126,7 @@
 
   /* ---------- the pins panel in the caches section ---------- */
   const pinsEl = $("#pins");
-  const pinned = ["fvm", "gradle-dist"].flatMap((k) => caches.filter((c) => c.kind === k).sort((a, b) => b.bytes - a.bytes));
+  const pinned = ["fvm", "gradle-dist", "gradle-version"].flatMap((k) => caches.filter((c) => c.kind === k).sort((a, b) => b.bytes - a.bytes));
   if (pinsEl && pinned.length) {
     pinsEl.innerHTML = pinned.map((c) => `<div class="pin${c.usedBy.length ? "" : " free"}"><b>${esc(c.name)}</b><span class="sz">${fmtBytes(c.bytes)}</span><span class="by">${esc(c.usedBy.length ? c.usedBy.join(", ") : "nothing scanned uses it")}</span></div>`).join("");
   }
@@ -301,7 +301,7 @@
     }
     let segs;
     if (r.c) {
-      segs = prefix.concat(b, dim(r.c.key, [["", padL(fmtBytes(n), 9) + "  "], badge(true), ["", " "], ["b", r.c.name], ["", "  "], ...cacheFlags(r.c)]));
+      segs = prefix.concat(b, dim(r.c.key, [["", padL(fmtBytes(n), 9) + "  "], badge(!r.c.safe), ["", " "], ["b", r.c.name], ["", "  "], ...cacheFlags(r.c)]));
     } else if (r.art >= 0) {
       const a = r.p.arts[r.art];
       segs = prefix.concat(b, dim(a.key, [["", padL(fmtBytes(n), 9) + "  " + " ".repeat(8) + "  " + " ".repeat(10) + "     " + a.name + "/"]]));
@@ -314,7 +314,9 @@
     return ln(segs, ` data-row="${i}"`, "row ln" + (isCur ? " on" : ""));
   };
   const cacheWhy = (c) => {
+    if (c.safe) return "no scanned project uses this Gradle version";
     const why = ["shared by every project; the next build is slower"];
+    if (c.daemon) why.unshift("a Gradle daemon of this version ran in the last 3 hours");
     if (c.usedBy.length) why.unshift(`used by ${c.usedBy.length} scanned project(s)`);
     if (c.command.length) why.unshift("its own clean-up command deletes (no undo)");
     return why.join(" · ");
@@ -323,7 +325,7 @@
     const out = [];
     if (r.c) {
       const c = r.c;
-      out.push([["", "  "], ["b", c.name], ["", "  "], ["y", "caution"], ["", "  "], ["f", cacheWhy(c)]]);
+      out.push([["", "  "], ["b", c.name], ["", "  "], c.safe ? ["g", "safe"] : ["y", "caution"], ["", "  "], ["f", cacheWhy(c)]]);
       out.push(c.command.length ? [["", "  "], ["r", "Runs `" + c.command.join(" ") + "`, the tool's own clean-up. Not recoverable from the Trash."]] : [["", "  "], ["f", c.path]]);
       out.push([["", "  " + c.note]]);
     } else if (r.art >= 0) {
@@ -376,7 +378,7 @@
   };
   const legendLines = () => [
     [["", "  "], ["b", "Safety"]],
-    [["", "    "], badge(false), ["", "  project build output; the next build recreates it; moves to the Trash"]],
+    [["", "    "], badge(false), ["", "  project build output, or a Gradle version no scanned project uses; moves to the Trash"]],
     [["", "    "], badge(true), ["", "  machine-wide cache: shared by every project, maybe pinned by one, or cleaned by its own command (no undo)"]],
     [],
     [["", "  "], ["b", "Marks"], ["", "  ○ not selected  ◐ partly  ● selected  ◌ queued or running  ✓ done  ✗ failed (see the detail)"]],
