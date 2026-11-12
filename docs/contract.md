@@ -13,7 +13,7 @@ The older `flutterkill --json` output (projects and caches, no ids) is unchanged
 
 ## Discovery: `flutterkill capabilities --json`
 
-Returns `schema_version`, `tool {name: "flutterkill", version, ecosystem: "flutter"}`, `commands`, `actions` (`trash`, `delete`, `command`), `categories` (`project`, `cache`, `runtime`), `safety_levels` (`safe`, `review`, `protected`, `live`), `reason_codes` (`{code, level, effect}`), `artifact_kinds` and `cache_kinds` (`{kind, level, owner, regenerate}`), `exit_codes` and the OS's name for the trash.
+Returns `schema_version`, `tool {name: "flutterkill", version, ecosystem: "flutter"}`, `commands`, `actions` (`trash`, `delete`, `command`), `categories` (`project`, `cache`, `runtime`), `safety_levels` (`safe`, `review`, `protected`, `live`), `reason_codes` (`{code, level, effect}`), `artifact_kinds` and `cache_kinds` (`{kind, level, owner, regenerate}`), `exit_codes` and the OS's name for the trash. A cache kind's `level` is `review`, the level its items start at; a reason code may make one item `safe` (see `unused_version` below), so read the level from each item.
 
 ## Scan: `flutterkill scan --json [--no-global] [root...]`
 
@@ -63,12 +63,12 @@ Read-only. Roots default to `~/dev`, else the current directory. Unless `--no-gl
 | --- | --- |
 | `id` | Stable id: `art-…` for a project artifact, `glb-…` for a machine-wide item. Use it in plans. |
 | `fingerprint` | Hash of the safety-relevant state. Sizes and times are left out, so a build writing into `build/` does not invalidate a plan. For a command it also covers the folders the command removes. |
-| `kind` | An artifact's position next to `pubspec.yaml` (`build`, `.dart_tool`, `ios/Pods`, …) or a cache kind (`pub-cache`, `dart-server`, `gradle-caches`, `gradle-jdks`, `gradle-dist`, `android-studio`, `fvm`, `xcode-derived-data`, `xcode-device-support`, `cocoapods-cache`, `swiftpm-cache`, `simulator-caches`, `simulators-unavailable`). |
+| `kind` | An artifact's position next to `pubspec.yaml` (`build`, `.dart_tool`, `ios/Pods`, …) or a cache kind (`pub-cache`, `dart-server`, `gradle-caches` (`caches/modules-2` since 0.4; the whole `caches/` before), `gradle-build-cache`, `gradle-version`, `gradle-jdks`, `gradle-dist`, `android-studio`, `fvm`, `xcode-derived-data`, `xcode-device-support`, `cocoapods-cache`, `swiftpm-cache`, `simulator-caches`, `simulators-unavailable`). |
 | `category` | `project`, `cache`, or `runtime` (FVM Flutter versions, Gradle wrapper distributions). |
 | `project` | For artifacts: `{path, name, flutter, fvm_version, last_activity}`; `null` otherwise. |
 | `tool` | Owner of a machine-wide item (`Dart`, `Gradle`, `Xcode`, …). |
 | `action`, `command` | `trash` (moved to the trash; deleted with `--permanent`) or `command` (the owner's clean-up, which deletes by design) with its exact argv. |
-| `used_by` | Scanned projects that use an FVM or Gradle version. |
+| `used_by` | Scanned projects that use an FVM or Gradle version. Gradle pins come from every `gradle/wrapper/gradle-wrapper.properties` under the roots (Flutter, native Android, React Native, …); a `gradle-version` item (`caches/<version>`) is used by projects whose wrapper downloads that version, `-all` or `-bin`. |
 | `measured`, `bytes` | `{allocated, shared, exclusive, file_count}`. flutterkill counts allocated blocks like `du` and hard links once; it does not separate APFS clone blocks, so `exclusive` equals `allocated` and `shared` is 0. `file_count` is not counted (0). |
 | `safety` | `{level, reasons[{code, level, detail}]}`. |
 
@@ -76,11 +76,15 @@ Read-only. Roots default to `~/dev`, else the current directory. Unless `--no-gl
 
 | Level | Meaning |
 | --- | --- |
-| `safe` | Generated and regenerable; may be bulk-selected. Every project artifact. |
-| `review` | Allowed when chosen explicitly (a plan), never in bulk. Every machine-wide item. |
+| `safe` | Generated and regenerable; may be bulk-selected. Every project artifact, and (since 0.4) a Gradle wrapper distribution or version cache that no scanned project uses and no recent daemon ran. |
+| `review` | Allowed when chosen explicitly (a plan), never in bulk. Every other machine-wide item. |
 | `protected`, `live` | Never acted on. Reserved; flutterkill 0.3 leaves out what its guards refuse instead of listing it. |
 
-Codes: `generated` (safe), `global_cache`, `used_by_projects`, `deletes` (review).
+Codes: `generated`, `unused_version` (safe); `global_cache`, `used_by_projects`, `deletes`, `daemon_recent` (review).
+
+- `unused_version` replaces `global_cache` on a `gradle-dist` or `gradle-version` item that no scanned project uses. "Unused" is relative to the scanned roots: a version used only outside them looks unused.
+- `daemon_recent` is added to such an unused item, which then stays `review`, when something in `$GRADLE_USER_HOME/daemon/<version>` changed in the last 3 hours (the default daemon idle timeout): a daemon of that version may still be running.
+- A used version keeps `global_cache` and `used_by_projects`. Level and reasons are in the fingerprint, so a plan made while a version was unused is refused as `stale` once a project uses it or its daemon runs.
 
 ## Plan and apply: `flutterkill apply --plan <file|-> [--dry-run] [--permanent] [--json] [root...]`
 

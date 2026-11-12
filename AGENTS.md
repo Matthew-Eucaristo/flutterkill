@@ -4,7 +4,7 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 
 ## Layout
 - `internal/scan` — find projects (`pubspec.yaml`), artifacts, sizes, last activity. Read-only.
-- `internal/caches` — fixed catalog of global caches (`rawCatalog`), per-version groups (`groups`: FVM, Gradle dists, old Android Studio), the `Allowed` rules (exact paths + `Children`) and the allowed clean-up commands. Per-OS locations come from `Env` (Windows: `%LOCALAPPDATA%`).
+- `internal/caches` — fixed catalog of global caches (`rawCatalog`), per-version groups (`groups`: FVM, Gradle dists, Gradle version caches `caches/<version>`, old Android Studio), the `Allowed` rules (exact paths + `Children`, optionally narrowed by a `Match` such as `IsGradleVersion`) and the allowed clean-up commands. Per-OS locations come from `Env` (Windows: `%LOCALAPPDATA%`).
 - `internal/clean` — the only code that removes anything. `guard.go` checks every path right before removal; `trash_{darwin,linux,windows}.go` move to the OS trash.
 - `internal/inventory` — load + parallel measuring shared by TUI and `--list`/`--json`.
 - `internal/ui` — Bubble Tea model (`model.go`) and rendering (`view.go`). Look follows `fell` (family reference): header with mode and free space, bar/SIZE/ACTIVE/SAFETY columns, `● safe`/`▲ caution` labels, separator + detail panel, summary, key hints, `?` legend.
@@ -23,6 +23,7 @@ npkill-style TUI that reclaims disk space from Flutter/Dart projects and global 
 - `apply` acts only on a fresh scan's item whose fingerprint matches the plan, runs the `clean.Check*` guards (refused, not failed, when they say no), then removes through `Cleaner`; plans reject unknown fields, and consent comes only from flags.
 - Removals run one at a time (TUI queue, `--yes` loop) via `Cleaner.RemoveArtifact`/`RemoveCache`, which measure free space before/after. Receipts keep trashed, deleted and delegated (tool command) apart. First `ctrl+c`/`q` cancels the queue and lets the running item finish.
 - No blocking work in `Update` or `View`: scans, sizes, removals and `FreeBytes` run in `tea.Cmd`s; `View` never mutates state (scrolling is clamped in `Update`).
+- Machine-wide items are `review` (TUI: caution), except a Gradle wrapper dist or `caches/<version>` that no scanned Gradle project pins and whose `daemon/<version>` saw no write in 3 h: `safe` (`unused_version`). Contract `cacheEntry` and TUI `cacheLevel` must agree; Gradle pins come from every `gradle/wrapper` in the walk, not only Flutter projects.
 - Every row state has its own glyph (`○ ◐ ● ◌ ✓ ✗`) so the TUI reads without colour.
 
 ## Release & privacy
