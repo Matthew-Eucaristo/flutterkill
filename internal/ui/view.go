@@ -259,19 +259,31 @@ func fine(n, total int64, width int) string {
 type level int
 
 const (
-	safe    level = iota // generated next to a pubspec.yaml; the next build recreates it
+	safe    level = iota // regenerable: project output, or a Gradle version nothing scanned uses
 	caution              // machine-wide: allowed when chosen, never in bulk elsewhere
 )
 
 func (l level) String() string { return [...]string{"safe", "caution"}[l] }
 
-// cacheLevel is always caution: machine-wide caches are "review" in the
-// family contract, and the TUI uses the same judgement as decruft.
-func cacheLevel(*caches.Cache) level { return caution }
+// cacheLevel follows the family contract, so the TUI and decruft agree:
+// machine-wide caches are caution ("review"), except a per-version Gradle
+// download or cache that no scanned project uses and no recent daemon ran.
+func cacheLevel(c *caches.Cache) level {
+	if c.Unused && !c.DaemonRecent {
+		return safe
+	}
+	return caution
+}
 
 // cacheWhy says why a cache needs care, most specific first.
 func cacheWhy(c *caches.Cache) string {
+	if cacheLevel(c) == safe {
+		return "no scanned project uses this Gradle version"
+	}
 	why := []string{"shared by every project; the next build is slower"}
+	if c.Unused && c.DaemonRecent {
+		why = append([]string{"a Gradle daemon of this version ran in the last 3 hours"}, why...)
+	}
 	if n := len(c.UsedBy); n > 0 {
 		why = append([]string{fmt.Sprintf("used by %d scanned project(s)", n)}, why...)
 	}
@@ -516,7 +528,7 @@ func (m *Model) emptyLines() []string {
 func (m *Model) legendLines() []string {
 	return []string{
 		"  " + bold.Render("Safety"),
-		"    " + badge(safe) + "  project build output; the next build recreates it; moves to the " + clean.TrashName,
+		"    " + badge(safe) + "  project build output, or a Gradle version no scanned project uses; moves to the " + clean.TrashName,
 		"    " + badge(caution) + "  machine-wide cache: shared by every project, maybe pinned by one, or cleaned by its own command (no undo)",
 		"",
 		"  " + bold.Render("Marks") + "  ○ not selected  ◐ partly  ● selected  ◌ queued or running  ✓ done  ✗ failed (see the detail)",

@@ -309,3 +309,21 @@ func TestQuitKeyWhileBusyStopsInsteadOfQuitting(t *testing.T) {
 		t.Error("q did not quit once idle")
 	}
 }
+
+// The TUI judges caches like the contract: an unused Gradle version is safe
+// unless its daemon ran recently.
+func TestCacheLevelFollowsTheContract(t *testing.T) {
+	for _, tt := range []struct {
+		c    caches.Cache
+		want level
+	}{
+		{caches.Cache{ID: "gradle-version:9.3.1", Unused: true}, safe},
+		{caches.Cache{ID: "gradle-version:9.4.1", Unused: true, DaemonRecent: true}, caution},
+		{caches.Cache{ID: "gradle-dist:gradle-8.3-all", UsedBy: []string{"app"}}, caution},
+		{caches.Cache{ID: "pub-cache"}, caution},
+	} {
+		if got := cacheLevel(&tt.c); got != tt.want {
+			t.Errorf("%s: %s, want %s", tt.c.ID, got, tt.want)
+		}
+	}
+}

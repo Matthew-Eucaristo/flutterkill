@@ -159,6 +159,27 @@ func TestCheckCacheWithKnownAndroidStudio(t *testing.T) {
 	}
 }
 
+// The guard allows exactly the split parts of ~/.gradle/caches: version
+// directories, modules-2 and build-cache-1; never caches/ itself or another child.
+func TestCheckCacheWithKnownGradleCaches(t *testing.T) {
+	home := realTemp(t)
+	c := filepath.Join(home, ".gradle", "caches")
+	for _, d := range []string{"9.4.1", "8.14.5", "modules-2", "build-cache-1", "foo", "jars-9", "9.4.1/transforms"} {
+		os.MkdirAll(filepath.Join(c, filepath.FromSlash(d)), 0o755)
+	}
+	os.Symlink(filepath.Join(c, "9.4.1"), filepath.Join(c, "9.5.0"))
+	allowed := caches.Known(caches.Env{Home: home, OS: "linux", Getenv: func(string) string { return "" }})
+	for d, ok := range map[string]bool{
+		"9.4.1": true, "8.14.5": true, "modules-2": true, "build-cache-1": true,
+		".": false, "foo": false, "jars-9": false, "9.4.1/transforms": false,
+		"9.5.0": false, // symlink
+	} {
+		if err := CheckCache(allowed, "", filepath.Join(c, filepath.FromSlash(d))); (err == nil) != ok {
+			t.Errorf("CheckCache(caches/%s) err=%v, want ok=%v", d, err, ok)
+		}
+	}
+}
+
 func TestKnownCatalogHasNoBroadPaths(t *testing.T) {
 	home := "/home/u"
 	env := caches.Env{Home: home, OS: "darwin", Getenv: func(string) string { return "" }}

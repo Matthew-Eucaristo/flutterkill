@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Cache is one global cache. It is cleaned either by moving Path away or, when
@@ -24,6 +26,12 @@ type Cache struct {
 	Command []string `json:"command,omitempty"`
 	Note    string   `json:"note"`
 	UsedBy  []string `json:"used_by,omitempty"` // projects using this FVM or Gradle version
+
+	// Unused marks a per-version Gradle item (wrapper distribution or
+	// version cache) that no scanned project uses. DaemonRecent marks one
+	// whose Gradle daemon may still be running. Neither is in the legacy JSON.
+	Unused       bool `json:"-"`
+	DaemonRecent bool `json:"-"`
 
 	// SizePaths are measured instead of Path (e.g. simulator device dirs).
 	SizePaths []string `json:"-"`
@@ -43,15 +51,18 @@ func DefaultEnv() Env {
 }
 
 // Children allows the direct children of Dir whose names start with Prefix
-// (and are longer than it), except hidden names and those in Except.
+// (and are longer than it) and, when Match is set, that Match accepts, except
+// hidden names and those in Except.
 type Children struct {
 	Dir    string
 	Prefix string
+	Match  func(name string) bool
 	Except map[string]bool
 }
 
 func (c Children) allows(name string) bool {
-	return !strings.HasPrefix(name, ".") && len(name) > len(c.Prefix) && strings.HasPrefix(name, c.Prefix) && !c.Except[name]
+	return !strings.HasPrefix(name, ".") && len(name) > len(c.Prefix) && strings.HasPrefix(name, c.Prefix) &&
+		(c.Match == nil || c.Match(name)) && !c.Except[name]
 }
 
 // Allowed lists the only global paths flutterkill may remove: exact paths,
@@ -145,8 +156,13 @@ func rawCatalog(env Env) []Cache {
 			Note: "Downloaded Dart/Flutter packages. Re-fetched by the next `pub get`; also removes `dart pub global` tools."},
 		{ID: "dart-server", Name: "Dart analysis server", Path: dartServer,
 			Note: "Analyzer index for your editor. Rebuilt when a project is opened."},
-		{ID: "gradle-caches", Name: "Gradle caches", Path: filepath.Join(gradle, "caches"),
-			Note: "Android dependencies and build cache. Re-downloaded on the next Android build; run `./gradlew --stop` first."},
+		// Only these two shared parts of caches/ are listed; its per-version
+		// children are the gradleVersions group. The rest (jars-9, journal-1,
+		// ...) is small bookkeeping Gradle needs and stays.
+		{ID: "gradle-caches", Name: "Gradle dependency cache", Path: filepath.Join(gradle, "caches", "modules-2"),
+			Note: "Android and Java dependencies downloaded by every Gradle build. Re-downloaded on the next Android build; run `./gradlew --stop` first."},
+		{ID: "gradle-build-cache", Name: "Gradle build cache", Path: filepath.Join(gradle, "caches", "build-cache-1"),
+			Note: "Task outputs Gradle reuses between builds. Refilled by later builds, which are slower until then; run `./gradlew --stop` first."},
 		{ID: "gradle-jdks", Name: "Gradle JDK toolchains", Path: filepath.Join(gradle, "jdks"),
 			Note: "JDKs Gradle downloaded for toolchains. Re-provisioned by the next build that needs one; run `./gradlew --stop` first."},
 	}
@@ -226,7 +242,7 @@ type group struct {
 // dropped.
 func groups(env Env, pins Pins) []group {
 	var out []group
-	for _, g := range []group{fvmVersions(env, pins.FVM), gradleDists(env, pins.Gradle), oldAndroidStudios(env)} {
+	for _, g := range []group{fvmVersions(env, pins.FVM), gradleDists(env, pins.Gradle), gradleVersions(env, pins.Gradle), oldAndroidStudios(env)} {
 		if g.Dir == "" {
 			continue
 		}
@@ -279,8 +295,72 @@ func gradleDists(env Env, pins map[string][]string) group {
 		if len(users) > 0 {
 			note = "Used by " + strings.Join(users, ", ") + ". Re-downloaded by their next Android build."
 		}
-		return Cache{ID: "gradle-dist:" + name, Name: "Gradle " + strings.TrimPrefix(name, "gradle-"), Note: note, UsedBy: users}
+		c := Cache{ID: "gradle-dist:" + name, Name: "Gradle " + strings.TrimPrefix(name, "gradle-"), Note: note, UsedBy: users}
+		if v, ok := distVersion(name); ok {
+			c.Unused, c.DaemonRecent = len(users) == 0, daemonRecent(env, v, time.Now())
+		}
+		return c
 	}}
+}
+
+// gradleVersions are the per-version parts of $GRADLE_USER_HOME/caches
+// (caches/8.14.5: transforms, compiled build scripts, generated jars), used
+// by the projects whose wrapper downloads that version, -all or -bin. Only
+// children named exactly like a Gradle version match.
+func gradleVersions(env Env, pins map[string][]string) group {
+	dir := filepath.Join(gradleHome(env), "caches")
+	return group{Children{Dir: dir, Match: IsGradleVersion}, func(v string) Cache {
+		users := sorted(append(slices.Clone(pins["gradle-"+v+"-all"]), pins["gradle-"+v+"-bin"]...))
+		users = slices.Compact(users)
+		note := "Caches of Gradle " + v + " (transforms, compiled build scripts). Not used by any scanned project; recreated if one needs it."
+		if len(users) > 0 {
+			note = "Caches of Gradle " + v + ", used by " + strings.Join(users, ", ") + ". Recreated by their next Android build; run `./gradlew --stop` first."
+		}
+		return Cache{ID: "gradle-version:" + v, Name: "Gradle " + v + " caches", Note: note, UsedBy: users,
+			Unused: len(users) == 0, DaemonRecent: daemonRecent(env, v, time.Now())}
+	}}
+}
+
+var gradleVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?(-(rc|milestone)-[0-9]+)?$`)
+
+// IsGradleVersion reports whether name is a Gradle release version such as
+// 8.3, 8.14.5 or 9.0-rc-1.
+func IsGradleVersion(name string) bool { return gradleVersion.MatchString(name) }
+
+// distVersion is the Gradle version of a wrapper distribution name
+// (gradle-8.3-all → 8.3).
+func distVersion(name string) (string, bool) {
+	v, ok := strings.CutPrefix(name, "gradle-")
+	if !ok {
+		return "", false
+	}
+	if v, ok = strings.CutSuffix(v, "-all"); !ok {
+		v, ok = strings.CutSuffix(v, "-bin")
+	}
+	if !ok || !IsGradleVersion(v) {
+		return "", false
+	}
+	return v, true
+}
+
+// DaemonIdle is Gradle's default daemon idle timeout: a daemon whose
+// directory changed more recently than this may still be running.
+const DaemonIdle = 3 * time.Hour
+
+// daemonRecent reports whether anything in $GRADLE_USER_HOME/daemon/<v> was
+// modified within DaemonIdle of now (logs and the registry are written while
+// a daemon of that version runs).
+func daemonRecent(env Env, v string, now time.Time) bool {
+	entries, err := os.ReadDir(filepath.Join(gradleHome(env), "daemon", v))
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if fi, err := e.Info(); err == nil && now.Sub(fi.ModTime()) < DaemonIdle {
+			return true
+		}
+	}
+	return false
 }
 
 const studioPrefix = "AndroidStudio"

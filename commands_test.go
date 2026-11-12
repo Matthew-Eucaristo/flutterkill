@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -194,6 +195,87 @@ func TestGlobalCachesAreReviewAndPinned(t *testing.T) {
 	}
 	if _, err := os.Stat(server); !os.IsNotExist(err) {
 		t.Fatalf("cache still exists: %v", err)
+	}
+}
+
+// A per-version Gradle item nothing scanned uses is safe; a used one, or one
+// whose daemon ran recently, stays review. A plan made while a version was
+// unused is stale once a project starts using it.
+func TestGradleVersionLevels(t *testing.T) {
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	gradle := filepath.Join(home, ".gradle")
+	for _, d := range []string{"caches/8.3", "caches/9.4.1", "caches/9.3.1", "caches/modules-2", "caches/foo",
+		"wrapper/dists/gradle-8.3-all", "wrapper/dists/gradle-9.3.1-all", "daemon/9.4.1"} {
+		os.MkdirAll(filepath.Join(gradle, filepath.FromSlash(d)), 0o755)
+	}
+	os.WriteFile(filepath.Join(gradle, "daemon", "9.4.1", "registry.bin"), []byte("x"), 0o644)
+	defaultEnv = func() caches.Env {
+		return caches.Env{Home: home, OS: "linux", Getenv: func(string) string { return "" }}
+	}
+	t.Cleanup(func() { defaultEnv = caches.DefaultEnv })
+	root := project(t)
+	wrapper := func(dir, dist string) {
+		os.MkdirAll(filepath.Join(root, dir, "gradle", "wrapper"), 0o755)
+		os.WriteFile(filepath.Join(root, dir, "gradle", "wrapper", "gradle-wrapper.properties"),
+			[]byte("distributionUrl=https\\://services.gradle.org/distributions/"+dist+".zip\n"), 0o644)
+	}
+	wrapper("app/android", "gradle-8.3-all") // the Flutter project
+
+	byName := func() map[string]contract.Item {
+		m := map[string]contract.Item{}
+		for _, it := range scanDoc(t, root).Items {
+			m[it.Name] = it
+		}
+		return m
+	}
+	items := byName()
+	for name, want := range map[string]struct {
+		kind  string
+		level contract.Level
+		code  string
+	}{
+		"Gradle 8.3 caches":       {"gradle-version", contract.Review, contract.ReasonUsedBy},
+		"Gradle 8.3-all":          {"gradle-dist", contract.Review, contract.ReasonUsedBy},
+		"Gradle 9.3.1 caches":     {"gradle-version", contract.Safe, contract.ReasonUnused},
+		"Gradle 9.3.1-all":        {"gradle-dist", contract.Safe, contract.ReasonUnused},
+		"Gradle 9.4.1 caches":     {"gradle-version", contract.Review, contract.ReasonDaemon},
+		"Gradle dependency cache": {"gradle-caches", contract.Review, contract.ReasonGlobal},
+	} {
+		it, ok := items[name]
+		if !ok {
+			t.Errorf("missing %s", name)
+			continue
+		}
+		var codes []string
+		for _, r := range it.Safety.Reasons {
+			codes = append(codes, r.Code)
+		}
+		if it.Kind != want.kind || it.Safety.Level != want.level || !slices.Contains(codes, want.code) {
+			t.Errorf("%s: kind %s level %s reasons %v, want %+v", name, it.Kind, it.Safety.Level, codes, want)
+		}
+	}
+	for name := range items {
+		if strings.Contains(name, "foo") || name == "Gradle caches" {
+			t.Errorf("unexpected item %s", name)
+		}
+	}
+
+	// A native Android project under the root starts using 9.3.1.
+	unused := items["Gradle 9.3.1 caches"]
+	wrapper("native_app", "gradle-9.3.1-bin")
+	if it := byName()["Gradle 9.3.1 caches"]; it.Safety.Level != contract.Review || it.Fingerprint == unused.Fingerprint {
+		t.Fatalf("after the pin: %+v", it.Safety)
+	}
+	doc, code := apply(t, plan(unused), "--permanent", root)
+	if code != contract.ExitRefused || doc.Results[0].Reasons[0] != "stale" {
+		t.Fatalf("code %d %+v", code, doc)
+	}
+	if _, err := os.Stat(filepath.Join(gradle, "caches", "9.3.1")); err != nil {
+		t.Fatalf("version cache touched: %v", err)
+	}
+	// The -all distribution is still unused (native_app downloads -bin).
+	if doc, code := apply(t, plan(byName()["Gradle 9.3.1-all"]), "--dry-run", root); code != 0 || doc.Results[0].Status != contract.StatusDryRun {
+		t.Fatalf("code %d %+v", code, doc)
 	}
 }
 

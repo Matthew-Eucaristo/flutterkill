@@ -57,6 +57,8 @@ const (
 	ReasonGlobal    = "global_cache"
 	ReasonUsedBy    = "used_by_projects"
 	ReasonDeletes   = "deletes"
+	ReasonUnused    = "unused_version"
+	ReasonDaemon    = "daemon_recent"
 )
 
 // ReasonInfo documents a reason code in capabilities.
@@ -72,6 +74,8 @@ var Reasons = []ReasonInfo{
 	{ReasonGlobal, Review, "Shared by every project on this machine; recreated when needed, but the next build is slower."},
 	{ReasonUsedBy, Review, "A scanned project uses this version; it is downloaded again by that project's next build."},
 	{ReasonDeletes, Review, "Removed by the owning tool's own command, which deletes instead of using the trash."},
+	{ReasonUnused, Safe, "A per-version Gradle download or cache that no scanned project uses; downloaded or recreated again only if a project needs that version."},
+	{ReasonDaemon, Review, "A Gradle daemon of this version was active in the last 3 hours and may still be running; run `./gradlew --stop` first."},
 }
 
 type Reason struct {
@@ -170,6 +174,8 @@ var cacheKinds = map[string]cacheInfo{
 	"pub-cache":              {"Dart", "cache", "the next pub get"},
 	"dart-server":            {"Dart", "cache", "opening a project in your editor"},
 	"gradle-caches":          {"Gradle", "cache", "the next Android build"},
+	"gradle-build-cache":     {"Gradle", "cache", "later Android builds"},
+	"gradle-version":         {"Gradle", "cache", "the next Android build that uses this version"},
 	"gradle-jdks":            {"Gradle", "cache", "the next build that needs that JDK"},
 	"gradle-dist":            {"Gradle", "runtime", "the next Android build that uses this version"},
 	"android-studio":         {"Android Studio", "cache", "running that Android Studio version again"},
@@ -224,6 +230,12 @@ func cacheEntry(root string, c *caches.Cache, home string) *Entry {
 	}}
 	if c.Path != "" {
 		e.Path = format.Tilde(c.Path, home)
+	}
+	switch {
+	case c.Unused && c.DaemonRecent:
+		e.Safety.Reasons = append(e.Safety.Reasons, Reason{ReasonDaemon, Review, "a Gradle daemon of this version was active in the last 3 hours"})
+	case c.Unused:
+		e.Safety = Safety{Level: Safe, Reasons: []Reason{{ReasonUnused, Safe, "no scanned project uses this Gradle version"}}}
 	}
 	if len(c.UsedBy) > 0 {
 		e.Safety.Reasons = append(e.Safety.Reasons, Reason{ReasonUsedBy, Review, "used by " + strings.Join(c.UsedBy, ", ")})

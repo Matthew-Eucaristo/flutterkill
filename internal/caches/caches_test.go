@@ -7,11 +7,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDiscoverFindsExistingCachesAndFVMPins(t *testing.T) {
 	home := t.TempDir()
-	for _, d := range []string{".dartServer", ".gradle/caches", ".gradle/jdks", "fvm/versions/3.24.0", "fvm/versions/3.19.6", "fvm/versions/.tmp"} {
+	for _, d := range []string{".dartServer", ".gradle/caches/modules-2", ".gradle/jdks", "fvm/versions/3.24.0", "fvm/versions/3.19.6", "fvm/versions/.tmp"} {
 		os.MkdirAll(filepath.Join(home, d), 0o755)
 	}
 	env := Env{Home: home, OS: "linux", Getenv: func(string) string { return "" }}
@@ -54,7 +55,8 @@ func TestWindowsLocations(t *testing.T) {
 		for _, p := range []string{
 			filepath.Join(local, "Pub", "Cache"),
 			filepath.Join(local, ".dartServer"),
-			filepath.Join(home, ".gradle", "caches"),
+			filepath.Join(home, ".gradle", "caches", "modules-2"),
+			filepath.Join(home, ".gradle", "caches", "8.14.5"),
 			filepath.Join(home, "fvm", "versions", "3.24.0"),
 			filepath.Join(local, "Google", "AndroidStudio2024.1"),
 		} {
@@ -85,12 +87,12 @@ func TestEnvOverrides(t *testing.T) {
 		return map[string]string{"PUB_CACHE": abs("/x/pub"), "GRADLE_USER_HOME": abs("/x/gradle"), "FVM_CACHE_PATH": abs("/x/fvm")}[k]
 	}}
 	a := Known(env)
-	for _, p := range []string{abs("/x/pub"), abs("/x/gradle/caches"), abs("/x/gradle/jdks"), abs("/x/gradle/wrapper/dists/gradle-8.3-all"), abs("/x/fvm/versions/3.24.0")} {
+	for _, p := range []string{abs("/x/pub"), abs("/x/gradle/caches/modules-2"), abs("/x/gradle/caches/build-cache-1"), abs("/x/gradle/caches/9.4.1"), abs("/x/gradle/jdks"), abs("/x/gradle/wrapper/dists/gradle-8.3-all"), abs("/x/fvm/versions/3.24.0")} {
 		if !a.Allows(p) {
 			t.Errorf("%s not allowed", p)
 		}
 	}
-	if a.Allows(abs("/x/gradle/wrapper/dists")) || a.Allows(abs("/x/fvm/versions")) {
+	if a.Allows(abs("/x/gradle/wrapper/dists")) || a.Allows(abs("/x/fvm/versions")) || a.Allows(abs("/x/gradle/caches")) {
 		t.Error("a group directory itself is allowed")
 	}
 }
@@ -246,5 +248,100 @@ func TestAndroidStudioOnlyUsesCachesLocation(t *testing.T) {
 	xdg := Env{Home: abs("/h"), OS: "linux", Getenv: func(k string) string { return map[string]string{"XDG_CACHE_HOME": abs("/x/cache")}[k] }}
 	if g := oldAndroidStudios(xdg); g.Dir != abs("/x/cache/Google") {
 		t.Errorf("XDG_CACHE_HOME ignored: %s", g.Dir)
+	}
+}
+
+func TestGradleVersionNames(t *testing.T) {
+	for name, want := range map[string]bool{
+		"8.3": true, "8.14.5": true, "9.4.1": true, "9.0-rc-1": true, "8.0-milestone-2": true,
+		"modules-2": false, "build-cache-1": false, "jars-9": false, "journal-1": false, "transforms-4": false,
+		"8": false, "8.": false, ".8.3": false, "8.3.1.2": false, "8.3-foo": false, "v8.3": false, "8.3 ": false, "": false,
+	} {
+		if got := IsGradleVersion(name); got != want {
+			t.Errorf("IsGradleVersion(%q) = %v", name, got)
+		}
+	}
+	for name, want := range map[string]string{"gradle-8.3-all": "8.3", "gradle-9.0-rc-1-bin": "9.0-rc-1", "gradle-8.3": "", "gradle-x-all": ""} {
+		if got, _ := distVersion(name); got != want {
+			t.Errorf("distVersion(%q) = %q", name, got)
+		}
+	}
+}
+
+// ~/.gradle/caches is split: one row per version directory, plus exact rows
+// for the dependency and build caches. The rest is never listed or allowed.
+func TestGradleCachesAreSplitByVersion(t *testing.T) {
+	home := t.TempDir()
+	gradle := filepath.Join(home, ".gradle")
+	for _, d := range []string{"caches/9.4.1/transforms", "caches/8.14.5", "caches/9.0-rc-1", "caches/modules-2", "caches/build-cache-1",
+		"caches/jars-9", "caches/journal-1", "caches/foo", "wrapper/dists/gradle-8.14.5-bin", "wrapper/dists/gradle-9.3.1-all",
+		"wrapper/dists/gradle-9.4.1-all", "wrapper/dists/gradle-weird", "daemon/9.4.1", "daemon/9.3.1"} {
+		os.MkdirAll(filepath.Join(gradle, filepath.FromSlash(d)), 0o755)
+	}
+	// A 9.4.1 daemon logged just now; the 9.3.1 one is a day old.
+	os.WriteFile(filepath.Join(gradle, "daemon", "9.4.1", "daemon-1.out.log"), []byte("x"), 0o644)
+	old := filepath.Join(gradle, "daemon", "9.3.1", "daemon-2.out.log")
+	os.WriteFile(old, []byte("x"), 0o644)
+	day := time.Now().Add(-24 * time.Hour)
+	os.Chtimes(old, day, day)
+
+	env := Env{Home: home, OS: "linux", Getenv: func(string) string { return "" }}
+	pins := Pins{Gradle: map[string][]string{"gradle-8.14.5-all": {"b_app", "a_app"}, "gradle-8.14.5-bin": {"a_app", "native"}}}
+	got := map[string]*Cache{}
+	for _, c := range Discover(env, pins) {
+		got[c.ID] = c
+	}
+	type want struct {
+		path           string
+		users          []string
+		unused, daemon bool
+	}
+	for id, w := range map[string]want{
+		"gradle-caches":                 {"caches/modules-2", nil, false, false},
+		"gradle-build-cache":            {"caches/build-cache-1", nil, false, false},
+		"gradle-version:8.14.5":         {"caches/8.14.5", []string{"a_app", "b_app", "native"}, false, false},
+		"gradle-version:9.4.1":          {"caches/9.4.1", nil, true, true},
+		"gradle-version:9.0-rc-1":       {"caches/9.0-rc-1", nil, true, false},
+		"gradle-dist:gradle-8.14.5-bin": {"wrapper/dists/gradle-8.14.5-bin", []string{"a_app", "native"}, false, false},
+		"gradle-dist:gradle-9.3.1-all":  {"wrapper/dists/gradle-9.3.1-all", nil, true, false},
+		"gradle-dist:gradle-9.4.1-all":  {"wrapper/dists/gradle-9.4.1-all", nil, true, true},
+		"gradle-dist:gradle-weird":      {"wrapper/dists/gradle-weird", nil, false, false}, // no version: stays review
+	} {
+		c := got[id]
+		if c == nil {
+			t.Errorf("missing %s", id)
+			continue
+		}
+		if c.Path != filepath.Join(gradle, filepath.FromSlash(w.path)) || !slices.Equal(c.UsedBy, w.users) || c.Unused != w.unused || c.DaemonRecent != w.daemon {
+			t.Errorf("%s = %+v, want %+v", id, *c, w)
+		}
+	}
+	for id := range got {
+		if strings.Contains(id, "jars") || strings.Contains(id, "journal") || strings.Contains(id, "foo") {
+			t.Errorf("unexpected %s", id)
+		}
+	}
+	if got["gradle-version:9.4.1"].Name != "Gradle 9.4.1 caches" {
+		t.Errorf("name %q", got["gradle-version:9.4.1"].Name)
+	}
+
+	a := Known(env)
+	caches := filepath.Join(gradle, "caches")
+	for p, ok := range map[string]bool{
+		filepath.Join(caches, "9.4.1"):                  true,
+		filepath.Join(caches, "9.0-rc-1"):               true,
+		filepath.Join(caches, "modules-2"):              true,
+		filepath.Join(caches, "build-cache-1"):          true,
+		caches:                                          false,
+		filepath.Join(caches, "foo"):                    false,
+		filepath.Join(caches, "jars-9"):                 false,
+		filepath.Join(caches, "journal-1"):              false,
+		filepath.Join(caches, "9.4.1", "transforms"):    false, // grandchild
+		filepath.Join(caches, "modules-2", "files-2.1"): false,
+		filepath.Join(gradle, "daemon", "9.4.1"):        false,
+	} {
+		if a.Allows(p) != ok {
+			t.Errorf("Allows(%s) = %v, want %v", p, !ok, ok)
+		}
 	}
 }
