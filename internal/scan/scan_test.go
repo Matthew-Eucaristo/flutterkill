@@ -265,6 +265,46 @@ func TestGradleDist(t *testing.T) {
 	}
 }
 
+// Gradle pins come from every Gradle project under the root, not only from
+// Flutter projects, so a version a native Android or React Native app uses
+// does not look unused.
+func TestFindRecordsGradleWrapperPins(t *testing.T) {
+	root := t.TempDir()
+	props := func(dist string) string {
+		return "distributionUrl=https\\://services.gradle.org/distributions/" + dist + ".zip\n"
+	}
+	for dir, dist := range map[string]string{
+		"flutter_app/android":             "gradle-8.3-all",    // a Flutter project's own pin
+		"rn_app/android":                  "gradle-8.14.5-bin", // React Native: named after rn_app
+		"native_app":                      "gradle-9.4.1-all",  // a native Android root
+		"rn_app/node_modules/lib/android": "gradle-7.0-all",    // dependency, never a project
+		".hidden/app":                     "gradle-7.1-all",
+		"broken":                          "",
+	} {
+		mk(t, root, dir+"/gradle/wrapper/")
+		os.WriteFile(filepath.Join(root, dir, "gradle/wrapper/gradle-wrapper.properties"), []byte(props(dist)), 0o644)
+	}
+	os.WriteFile(filepath.Join(root, "broken/gradle/wrapper/gradle-wrapper.properties"), []byte("no url\n"), 0o644)
+	mk(t, root, "flutter_app/pubspec.yaml", "rn_app/package.json", "native_app/settings.gradle")
+
+	f, err := Find(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, g := range f.Gradle {
+		rel, _ := filepath.Rel(root, g.Path)
+		got = append(got, g.Name+"="+g.Dist+"@"+filepath.ToSlash(rel))
+	}
+	want := []string{"native_app=gradle-9.4.1-all@native_app", "rn_app=gradle-8.14.5-bin@rn_app/android"}
+	if !slices.Equal(got, want) {
+		t.Errorf("gradle projects = %v, want %v", got, want)
+	}
+	if len(f.Projects) != 1 || f.Projects[0].GradleDist != "gradle-8.3-all" {
+		t.Errorf("flutter projects = %+v", f.Projects)
+	}
+}
+
 func TestSymlinkedProjectDirIsNotFollowed(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()
 	mk(t, outside, "other/pubspec.yaml", "other/build/x")

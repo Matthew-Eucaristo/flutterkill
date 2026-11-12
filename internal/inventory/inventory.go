@@ -29,10 +29,11 @@ type Inventory struct {
 // Load finds projects (with their last activity) and existing global caches.
 // Sizes are left at -1; call Measure.
 func Load(o Options) (*Inventory, error) {
-	projects, err := scan.FindProjects(o.Root)
+	found, err := scan.Find(o.Root)
 	if err != nil {
 		return nil, err
 	}
+	projects := found.Projects
 	parallel(len(projects), func(i int) {
 		p := projects[i]
 		// Committed files are not regenerable output; the guard would refuse them.
@@ -46,15 +47,14 @@ func Load(o Options) (*Inventory, error) {
 	cutoff := time.Now().Add(-o.OlderThan)
 	pins := caches.Pins{FVM: map[string][]string{}, Gradle: map[string][]string{}} // from every project, cleaned ones included
 	for _, p := range projects {
-		if p.FVMVersion != "" {
-			pins.FVM[p.FVMVersion] = append(pins.FVM[p.FVMVersion], p.Name)
-		}
-		if p.GradleDist != "" {
-			pins.Gradle[p.GradleDist] = append(pins.Gradle[p.GradleDist], p.Name)
-		}
+		pin(pins.FVM, p.FVMVersion, p.Name)
+		pin(pins.Gradle, p.GradleDist, p.Name)
 		if len(p.Artifacts) > 0 && (o.OlderThan == 0 || p.LastActivity.Before(cutoff)) {
 			inv.Projects = append(inv.Projects, p)
 		}
+	}
+	for _, g := range found.Gradle { // native Android, React Native, other Gradle builds
+		pin(pins.Gradle, g.Dist, g.Name)
 	}
 	if inv.Projects == nil {
 		inv.Projects = []*scan.Project{}
@@ -63,6 +63,13 @@ func Load(o Options) (*Inventory, error) {
 		inv.Caches = caches.Discover(o.Env, pins)
 	}
 	return inv, nil
+}
+
+// pin records that project uses version, once per name.
+func pin(pins map[string][]string, version, project string) {
+	if version != "" && !slices.Contains(pins[version], project) {
+		pins[version] = append(pins[version], project)
+	}
 }
 
 // Sized reports one finished measurement. Key is an artifact path or a cache ID.

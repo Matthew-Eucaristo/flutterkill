@@ -78,9 +78,33 @@ func (p *Project) Bytes() int64 {
 // with a pubspec.yaml), including those without artifacts. Artifact sizes and
 // activity are left unset. Unreadable directories are skipped silently.
 func FindProjects(root string) ([]*Project, error) {
-	var projects []*Project
+	f, err := Find(root)
+	return f.Projects, err
+}
+
+// GradleProject is a directory holding gradle/wrapper/gradle-wrapper.properties
+// that is not the Android folder of a Flutter project: a native Android app, a
+// React Native android/ folder, any Gradle build. Only its wrapper pin is read.
+type GradleProject struct {
+	Name string // the directory's name, or its parent's when it is "android"
+	Path string
+	Dist string // e.g. "gradle-8.3-all"
+}
+
+// Found is what one walk of a root finds.
+type Found struct {
+	Projects []*Project      // Dart/Flutter projects, by path
+	Gradle   []GradleProject // other Gradle wrapper pins, by path
+}
+
+// Find walks root once and returns its Dart/Flutter projects (as
+// FindProjects) and the Gradle wrapper pins of every other Gradle project, so
+// a Gradle version used outside Flutter does not look unused.
+func Find(root string) (Found, error) {
+	var f Found
 	isProject := map[string]bool{}
 	home, _ := os.UserHomeDir()
+	sep := string(filepath.Separator)
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -95,16 +119,35 @@ func FindProjects(root string) ([]*Project, error) {
 		if path != root && skipDir(path, d.Name(), isProject) {
 			return fs.SkipDir
 		}
+		// <dir>/gradle/wrapper: reached by the walk anyway, so no extra stat
+		// per directory. A Flutter project's android/ already has its pin.
+		if d.Name() == "wrapper" && strings.HasSuffix(filepath.Dir(path), sep+"gradle") {
+			if dir := filepath.Dir(filepath.Dir(path)); dir != home && !(filepath.Base(dir) == "android" && isProject[filepath.Dir(dir)]) {
+				if dist := wrapperDist(path); dist != "" {
+					f.Gradle = append(f.Gradle, GradleProject{Name: gradleName(dir), Path: dir, Dist: dist})
+				}
+			}
+		}
 		// A stray ~/pubspec.yaml must not turn ~/build into an artifact.
 		if path == home || !isRegularFile(filepath.Join(path, "pubspec.yaml")) {
 			return nil
 		}
 		isProject[path] = true
-		projects = append(projects, newProject(root, path))
+		f.Projects = append(f.Projects, newProject(root, path))
 		return nil
 	})
-	sort.Slice(projects, func(i, j int) bool { return projects[i].Path < projects[j].Path })
-	return projects, err
+	sort.Slice(f.Projects, func(i, j int) bool { return f.Projects[i].Path < f.Projects[j].Path })
+	sort.Slice(f.Gradle, func(i, j int) bool { return f.Gradle[i].Path < f.Gradle[j].Path })
+	return f, err
+}
+
+// gradleName names a Gradle project after its directory, or after the
+// directory around it when that is an android/ folder (React Native, Capacitor).
+func gradleName(dir string) string {
+	if filepath.Base(dir) == "android" {
+		return filepath.Base(filepath.Dir(dir))
+	}
+	return filepath.Base(dir)
 }
 
 // skipDir decides whether the walk should not descend into dir.
@@ -252,10 +295,16 @@ func fvmPin(dir string) string {
 }
 
 // gradleDist returns the Gradle wrapper distribution the project's Android
-// build downloads, named like its directory under wrapper/dists: the zip name
-// in distributionUrl without ".zip" (e.g. "gradle-8.3-all"), or "".
+// build downloads, or "".
 func gradleDist(dir string) string {
-	b, err := os.ReadFile(filepath.Join(dir, "android", "gradle", "wrapper", "gradle-wrapper.properties"))
+	return wrapperDist(filepath.Join(dir, "android", "gradle", "wrapper"))
+}
+
+// wrapperDist reads gradle-wrapper.properties in the wrapper directory and
+// returns the distribution, named like its directory under wrapper/dists: the
+// zip name in distributionUrl without ".zip" (e.g. "gradle-8.3-all"), or "".
+func wrapperDist(wrapper string) string {
+	b, err := os.ReadFile(filepath.Join(wrapper, "gradle-wrapper.properties"))
 	if err != nil {
 		return ""
 	}
